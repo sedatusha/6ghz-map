@@ -162,8 +162,29 @@ if new_csvs:
 else:
     print("No new files — regenerating outputs from cache.")
 
+# ── Drop in-vehicle APs ───────────────────────────────────────────────────────
+# A fixed AP can't be heard beyond a few hundred meters. Any BSSID whose
+# observations span more than MAX_AP_SPAN_KM is onboard equipment (bus/train
+# Wi-Fi, phone hotspot in the car) and would paint false trails on the map.
+MAX_AP_SPAN_KM = 2.0
+_span = {}
+for p in points_map.values():
+    s = _span.get(p["b"])
+    if s is None:
+        _span[p["b"]] = [p["a"], p["a"], p["o"], p["o"]]
+    else:
+        if p["a"] < s[0]: s[0] = p["a"]
+        if p["a"] > s[1]: s[1] = p["a"]
+        if p["o"] < s[2]: s[2] = p["o"]
+        if p["o"] > s[3]: s[3] = p["o"]
+
+mobile_bssids = {b for b, (la0, la1, lo0, lo1) in _span.items()
+                 if max((la1 - la0) * 111, (lo1 - lo0) * 85) > MAX_AP_SPAN_KM}
+
 # ── Build index structures ────────────────────────────────────────────────────
-display   = list(points_map.values())
+display   = [p for p in points_map.values() if p["b"] not in mobile_bssids]
+dropped   = len(points_map) - len(display)
+print(f"Dropped {dropped:,} points from {len(mobile_bssids)} in-vehicle BSSIDs (span > {MAX_AP_SPAN_KM} km)")
 N         = len(display)
 operators = sorted(set(p["p"] for p in display))
 standards = sorted(set(p["d"] or "" for p in display))
