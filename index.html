@@ -1,0 +1,1246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>6 GHz Wi-Fi -- USA Coverage Map</title>
+<script src="https://unpkg.com/deck.gl@latest/dist.min.js"></script>
+<script src="https://unpkg.com/maplibre-gl@3/dist/maplibre-gl.js"></script>
+<link href="https://unpkg.com/maplibre-gl@3/dist/maplibre-gl.css" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --bg:#ffffff;--surface:#f6f8fa;--border:#d0d7de;
+  --accent:#0969da;--accent2:#1a7f37;--text:#1f2328;--muted:#57606e;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+#topbar{display:flex;align-items:center;gap:16px;padding:0 20px;height:52px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;z-index:1000}
+#topbar .logo{display:flex;align-items:center;gap:8px}
+#topbar .logo svg{width:22px;height:22px}
+#topbar h1{font-size:15px;font-weight:600;color:#1f2328;white-space:nowrap}
+#topbar .subtitle{font-size:12px;color:var(--muted);white-space:nowrap}
+#topbar .spacer{flex:1}
+.badge{font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;background:rgba(63,185,80,.15);color:var(--accent2);border:1px solid rgba(63,185,80,.3);white-space:nowrap}
+#body{display:flex;flex:1;overflow:hidden}
+#sidebar{width:280px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;z-index:500}
+#map-wrap{flex:1;position:relative}
+#map{width:100%;height:100%}
+.section{padding:14px 16px;border-bottom:1px solid var(--border)}
+.section-title{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stat-card{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+.stat-card .val{font-size:20px;font-weight:700;color:#1f2328;line-height:1}
+.stat-card .lbl{font-size:11px;color:var(--muted);margin-top:3px}
+.stat-card.full{grid-column:span 2}
+.stat-card.full .val{font-size:13px;font-weight:500;color:var(--text)}
+.aptype-list{display:flex;flex-direction:column;gap:7px}
+.aptype-row{display:flex;align-items:center;gap:8px;font-size:12px}
+.aptype-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.aptype-name{width:64px}
+.aptype-bar-wrap{flex:1;background:var(--bg);border-radius:4px;height:6px;overflow:hidden}
+.aptype-bar{height:100%;border-radius:4px}
+.aptype-count{width:62px;text-align:right;color:var(--muted);line-height:1.25}
+.filter-group{display:flex;flex-direction:column;gap:10px}
+.filter-label{font-size:12px;color:var(--muted);margin-bottom:3px}
+select{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;font-family:inherit}
+select:focus{outline:none;border-color:var(--accent)}
+.range-row{display:flex;align-items:center;gap:8px}
+.range-val{font-size:12px;color:var(--accent);font-weight:600;min-width:52px;text-align:right}
+input[type=range]{width:100%;padding:0;cursor:pointer;accent-color:var(--accent)}
+.bw-chips{display:flex;flex-wrap:wrap;gap:6px}
+.bw-chip{font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px;border:1px solid var(--border);cursor:pointer;color:var(--muted);background:var(--bg);transition:all .15s}
+.bw-chip.active{background:var(--accent);border-color:var(--accent);color:#000}
+.showing{font-size:11px;color:var(--muted);margin-top:4px;text-align:center}
+.legend-list{display:flex;flex-wrap:wrap;gap:8px}
+.legend-item{display:flex;align-items:center;gap:5px;font-size:12px}
+.legend-dot{width:10px;height:10px;border-radius:50%}
+#loader{position:absolute;inset:0;background:rgba(255,255,255,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:800;gap:16px}
+#loader p{font-size:13px;color:var(--muted);text-align:center}
+.prog-wrap{width:240px;background:var(--border);border-radius:4px;height:4px;overflow:hidden}
+.prog-bar{height:100%;background:var(--accent);border-radius:4px;transition:width .3s}
+.spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#detail{position:absolute;bottom:20px;right:20px;z-index:900;width:310px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;display:none;box-shadow:0 8px 32px rgba(0,0,0,.18)}
+#detail h3{font-size:13px;font-weight:600;color:#1f2328;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
+#detail h3 button{background:none;border:none;cursor:pointer;color:var(--muted);font-size:18px;line-height:1;padding:0}
+#detail h3 button:hover{color:#1f2328}
+.dtbl{width:100%;border-collapse:collapse;font-size:12px}
+.dtbl td{padding:4px 0;vertical-align:top}
+.dtbl td:first-child{color:var(--muted);width:90px;padding-right:8px}
+.rg{color:#1a7f37}.ro{color:#9a6700}.rw{color:#bc4c00}.rb{color:#cf222e}
+#sidebar::-webkit-scrollbar{width:4px}
+#sidebar::-webkit-scrollbar-track{background:transparent}
+#sidebar::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+#boxzoom-btn{position:absolute;top:14px;left:14px;z-index:950;display:flex;align-items:center;gap:7px;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:inherit;font-size:12px;font-weight:500;padding:8px 12px;border-radius:8px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+#boxzoom-btn:hover{border-color:var(--accent)}
+#boxzoom-btn.active{background:var(--accent);color:#000;border-color:var(--accent)}
+#boxzoom-overlay{position:absolute;inset:0;z-index:940;cursor:crosshair;display:none}
+#boxzoom-rect{position:absolute;border:1.5px dashed var(--accent);background:rgba(9,105,218,.12);display:none;pointer-events:none}
+#boxzoom-hint{position:absolute;top:60px;left:14px;z-index:950;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:11px;color:var(--muted);display:none}
+#searchbox{display:flex;align-items:center;gap:7px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--muted);min-width:280px}
+#searchbox:focus-within{border-color:var(--accent)}
+#search-input{flex:1;background:none;border:none;outline:none;color:var(--text);font-family:inherit;font-size:12px}
+#search-input::placeholder{color:var(--muted);opacity:.7}
+#searchbox.searching{opacity:.6}
+@media(max-width:900px){#searchbox{min-width:150px}}
+#analytics-btn{display:flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:inherit;font-size:12px;font-weight:500;padding:6px 12px;border-radius:8px;cursor:pointer}
+#analytics-btn:hover{border-color:var(--accent)}
+#analytics-btn.active{background:var(--accent);color:#000;border-color:var(--accent)}
+#analytics{position:absolute;left:0;right:0;bottom:0;z-index:920;background:rgba(246,248,250,.97);border-top:1px solid var(--border);display:none;flex-direction:column;box-shadow:0 -6px 24px rgba(0,0,0,.15)}
+#analytics.open{display:flex}
+.an-head{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;font-size:12px;font-weight:600;color:#1f2328;border-bottom:1px solid var(--border)}
+.an-head button{background:none;border:none;cursor:pointer;color:var(--muted);font-size:16px;line-height:1;padding:0}
+.an-head button:hover{color:#1f2328}
+.an-charts{display:flex;padding:10px 8px 6px}
+.an-chart{flex:1;min-width:0;padding:0 8px;display:flex;flex-direction:column;align-items:center}
+.an-title{font-size:11px;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em;text-align:center}
+.an-toggle button{background:var(--bg);border:1px solid var(--border);color:var(--muted);font-family:inherit;font-size:10px;font-weight:600;padding:2px 8px;cursor:pointer}
+.an-toggle button:first-child{border-radius:5px 0 0 5px}
+.an-toggle button:last-child{border-radius:0 5px 5px 0;border-left:none}
+.an-toggle button.active{background:var(--accent);color:#000;border-color:var(--accent)}
+.an-chart canvas{width:100%;max-width:440px;display:block}
+.an-cap{font-size:11px;color:var(--text);margin-top:4px;min-height:14px;text-align:center}
+@media(max-width:680px){#sidebar{display:none}}
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="logo">
+    <svg viewBox="0 0 24 24" fill="none">
+      <path d="M1 8C4.5 4.5 9 2.5 12 2.5S19.5 4.5 23 8" stroke="#0969da" stroke-width="1.8" stroke-linecap="round"/>
+      <path d="M4 11.5C6.5 9 9.1 7.5 12 7.5s5.5 1.5 8 4" stroke="#0969da" stroke-width="1.8" stroke-linecap="round"/>
+      <path d="M7.5 15C9 13.5 10.4 12.5 12 12.5s3 1 4.5 2.5" stroke="#0969da" stroke-width="1.8" stroke-linecap="round"/>
+      <circle cx="12" cy="19" r="1.5" fill="#0969da"/>
+    </svg>
+    <h1>6 GHz Wi-Fi Coverage</h1>
+  </div>
+  <span class="subtitle">United States Field Data</span>
+  <div class="spacer"></div>
+  <div id="searchbox">
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.5"/><path d="M11 11l3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+    <input id="search-input" type="text" placeholder="Search a place... (e.g. University of Notre Dame)" spellcheck="false"/>
+  </div>
+  <button id="analytics-btn" title="Charts for the visible region">
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="1" y="9" width="3" height="6" fill="currentColor"/><rect x="6.5" y="5" width="3" height="10" fill="currentColor"/><rect x="12" y="1" width="3" height="14" fill="currentColor"/></svg>
+    Analytics
+  </button>
+  <span class="badge" id="top-badge">Loading...</span>
+</div>
+
+<div id="body">
+  <div id="sidebar">
+    <div class="section">
+      <div class="section-title">Overview</div>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="val" id="s-total">--</div><div class="lbl">Unique APs</div></div>
+        <div class="stat-card"><div class="val" id="s-files">--</div><div class="lbl">Source files</div></div>
+        <div class="stat-card full"><div class="val" id="s-dates">--</div><div class="lbl">Collection period</div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">AP Types &mdash; in view / total</div>
+      <div class="aptype-list" id="aptype-list"></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Filters</div>
+      <div class="filter-group">
+
+        <div>
+          <div class="filter-label">AP Type</div>
+          <select id="f-ap"><option value="255">All types</option></select>
+        </div>
+
+        <div>
+          <div class="filter-label">Environment</div>
+          <select id="f-env">
+            <option value="255">All environments</option>
+            <option value="0">Indoor</option>
+            <option value="1">Outdoor</option>
+            <option value="2">Mixed</option>
+            <option value="3">Unknown</option>
+          </select>
+        </div>
+
+        <div>
+          <div class="filter-label">Standard</div>
+          <select id="f-std"><option value="255">All standards</option></select>
+        </div>
+
+        <div>
+          <div class="filter-label">Channel Bandwidth</div>
+          <div class="bw-chips" id="bw-chips">
+            <span class="bw-chip active" data-w="0">All</span>
+          </div>
+        </div>
+
+        <div>
+          <div class="filter-label">Min signal strength</div>
+          <div class="range-row">
+            <input type="range" id="f-rssi" min="-100" max="-40" value="-100" step="5"/>
+            <span class="range-val" id="rssi-val">Any</span>
+          </div>
+        </div>
+
+        <div class="showing" id="showing-count"></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Legend</div>
+      <div class="legend-list" id="legend-list"></div>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px;">
+        Color = AP type &nbsp;|&nbsp; Brightness = signal strength
+      </div>
+    </div>
+
+    <div class="section" style="border-bottom:none;">
+      <div class="section-title">About</div>
+      <p style="font-size:12px;color:var(--muted);line-height:1.6;">
+        Field-collected Wi-Fi scans. One point per unique BSSID per location (5-decimal-place GPS precision). Click any dot for details.
+      </p>
+    </div>
+  </div><!-- /sidebar -->
+
+  <div id="map-wrap">
+    <div id="map"></div>
+    <button id="boxzoom-btn" title="Draw a rectangle to zoom to that region">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="1.5" width="13" height="13" rx="1" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 2"/></svg>
+      Zoom to region
+    </button>
+    <div id="boxzoom-hint">Drag a rectangle on the map &mdash; Esc to cancel</div>
+    <div id="boxzoom-overlay"><div id="boxzoom-rect"></div></div>
+    <div id="loader">
+      <div class="spinner"></div>
+      <p id="loader-msg">Loading map data...</p>
+      <div class="prog-wrap"><div class="prog-bar" id="prog" style="width:0%"></div></div>
+    </div>
+    <div id="detail">
+      <h3>AP Details <button onclick="document.getElementById('detail').style.display='none'">&#x2715;</button></h3>
+      <table class="dtbl" id="dtbl"></table>
+    </div>
+    <div id="analytics">
+      <div class="an-head">
+        <span>In-View Analytics</span>
+        <button id="an-close">&#x2715;</button>
+      </div>
+      <div class="an-charts">
+        <div class="an-chart">
+          <div class="an-title">RSSI Distribution &mdash;
+            <span class="an-toggle">
+              <button id="vio-bw" class="active">by BW</button><button id="vio-ch">by Channel</button>
+            </span>
+          </div>
+          <canvas id="an-violin" width="440" height="230"></canvas>
+          <div class="an-cap" id="an-violin-cap"></div>
+        </div>
+        <div class="an-chart">
+          <div class="an-title">Unique BSSIDs per Channel &mdash; LPI</div>
+          <canvas id="an-lpi" width="440" height="230"></canvas>
+          <div class="an-cap" id="an-lpi-cap"></div>
+        </div>
+        <div class="an-chart">
+          <div class="an-title">Unique BSSIDs per Channel &mdash; SP</div>
+          <canvas id="an-sp" width="440" height="230"></canvas>
+          <div class="an-cap" id="an-sp-cap"></div>
+        </div>
+        <div class="an-chart">
+          <div class="an-title">6 GHz Growth &mdash; per Year</div>
+          <canvas id="an-time" width="440" height="230"></canvas>
+          <div class="an-cap" id="an-time-cap"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div><!-- /body -->
+
+<script>
+// ── Constants ─────────────────────────────────────────────────────────────────
+// Colors per AP category name; categories themselves come from meta.json (data-derived)
+const AP_PALETTE = {
+  'LPI':       [9, 105, 218],   // blue
+  'SP':        [188, 76, 0],    // orange
+  'Indoor SP': [27, 124, 131],  // teal
+  'VLP':       [130, 80, 223],  // purple
+  'Unknown':   [110, 119, 129], // gray
+};
+const AP_FALLBACK_COLORS = [[26,127,55],[207,34,46],[154,103,0],[57,197,207]];
+let AP_CATS = [], AP_COLORS = [];  // filled from meta.json at load
+let IDX_LPI = 0, IDX_SP = 1;       // category indices, set at load
+
+function initApCats(cats) {
+  AP_CATS = cats;
+  let fb = 0;
+  AP_COLORS = cats.map(c => AP_PALETTE[c] || AP_FALLBACK_COLORS[fb++ % AP_FALLBACK_COLORS.length]);
+}
+const WIDTH_LABELS = {0:'?', 1:'20', 2:'40', 3:'80', 4:'160', 5:'320'};
+const WIDTH_MHZ    = {0:0,   1:20,  2:40,  3:80,  4:160,  5:320};
+const EPOCH_MS     = new Date('2020-01-01').getTime();
+
+// Opacity floor kept high so colors stay recognizable on the light basemap
+function rssiAlpha(r) {
+  if (r === -128) return 185;
+  if (r >= -60)   return 255;
+  if (r >= -70)   return 240;
+  if (r >= -80)   return 215;
+  return 195;
+}
+function rssiClass(r) {
+  if (r === -128) return '';
+  if (r >= -60)   return 'rg';
+  if (r >= -70)   return 'ro';
+  if (r >= -80)   return 'rw';
+  return 'rb';
+}
+function bssidHex(bytes, off) {
+  return Array.from({length:6}, (_,i) => bytes[off+i].toString(16).padStart(2,'0')).join(':');
+}
+function daysToDate(d) {
+  const ms = EPOCH_MS + d * 86400000;
+  return new Date(ms).toISOString().slice(0,10);
+}
+
+// ── Typed arrays (populated after binary load) ────────────────────────────────
+let N = 0;
+let lats, lons, rssis, apTypes, widths, opIdxs, stdIdxs, freqIdxs, envs;
+let bssids, dateDays;  // from details.bin
+let META = null;
+
+// Pre-computed color buffer
+let colorBuf = null;
+
+// ── Deck.gl setup ─────────────────────────────────────────────────────────────
+const {DeckGL, ScatterplotLayer} = deck;
+let deckInstance = null;
+
+// Active filter state
+const filters = {ap: 255, rssi: -100, bw: 0, std: 255, env: 255};
+
+function buildColorBuf() {
+  colorBuf = new Uint8Array(N * 4);
+  for (let i = 0; i < N; i++) {
+    const [r,g,b] = AP_COLORS[apTypes[i]] || AP_COLORS[AP_COLORS.length - 1];
+    colorBuf[i*4]   = r;
+    colorBuf[i*4+1] = g;
+    colorBuf[i*4+2] = b;
+    colorBuf[i*4+3] = rssiAlpha(rssis[i]);
+  }
+}
+
+function getFilteredArrays() {
+  const {ap, rssi: minRssi, bw, std, env} = filters;
+  const noFilter = ap === 255 && minRssi <= -100 && bw === 0 && std === 255 && env === 255;
+
+  if (noFilter) {
+    return {
+      positions: new Float32Array(lons.buffer, lons.byteOffset, N*2).map((_,i)=>i%2===0?lons[i/2]:lats[i/2]),
+      colors: colorBuf,
+      count: N
+    };
+  }
+
+  // Build filtered typed arrays
+  const posOut   = new Float32Array(N * 2);
+  const colorOut = new Uint8Array(N * 4);
+  let k = 0;
+
+  for (let i = 0; i < N; i++) {
+    if (ap  !== 255 && apTypes[i] !== ap)              continue;
+    if (bw  !== 0   && widths[i]  !== bw)              continue;
+    if (std !== 255 && stdIdxs[i] !== std)             continue;
+    if (env !== 255 && envs[i]    !== env)             continue;
+    if (minRssi > -100 && (rssis[i] === -128 || rssis[i] < minRssi)) continue;
+
+    posOut[k*2]   = lons[i];
+    posOut[k*2+1] = lats[i];
+    colorOut[k*4]   = colorBuf[i*4];
+    colorOut[k*4+1] = colorBuf[i*4+1];
+    colorOut[k*4+2] = colorBuf[i*4+2];
+    colorOut[k*4+3] = colorBuf[i*4+3];
+    k++;
+  }
+
+  return {
+    positions: posOut.slice(0, k*2),
+    colors:    colorOut.slice(0, k*4),
+    count: k
+  };
+}
+
+// Build interleaved position array for unfiltered case
+let allPositions = null;
+function getAllPositions() {
+  if (allPositions) return allPositions;
+  allPositions = new Float32Array(N * 2);
+  for (let i = 0; i < N; i++) {
+    allPositions[i*2]   = lons[i];
+    allPositions[i*2+1] = lats[i];
+  }
+  return allPositions;
+}
+
+// Track filtered indices for click lookup
+let filteredIndices = null;
+
+function getFilteredWithIndex() {
+  const {ap, rssi: minRssi, bw, std, env} = filters;
+  const noFilter = ap === 255 && minRssi <= -100 && bw === 0 && std === 255 && env === 255;
+
+  const indices = noFilter
+    ? null  // use all — index === raw index
+    : new Int32Array(N);  // max possible size
+
+  const posOut   = new Float32Array(N * 2);
+  const colorOut = new Uint8Array(N * 4);
+  let k = 0;
+
+  for (let i = 0; i < N; i++) {
+    if (!noFilter) {
+      if (ap  !== 255 && apTypes[i] !== ap)  continue;
+      if (bw  !== 0   && widths[i]  !== bw)  continue;
+      if (std !== 255 && stdIdxs[i] !== std) continue;
+      if (env !== 255 && envs[i]    !== env) continue;
+      if (minRssi > -100 && (rssis[i] === -128 || rssis[i] < minRssi)) continue;
+    }
+
+    posOut[k*2]     = lons[i];
+    posOut[k*2+1]   = lats[i];
+    colorOut[k*4]   = colorBuf[i*4];
+    colorOut[k*4+1] = colorBuf[i*4+1];
+    colorOut[k*4+2] = colorBuf[i*4+2];
+    colorOut[k*4+3] = colorBuf[i*4+3];
+    if (indices) indices[k] = i;
+    k++;
+  }
+
+  filteredIndices = indices ? indices.slice(0, k) : null;
+  return {
+    positions: posOut.slice(0, k*2),
+    colors:    colorOut.slice(0, k*4),
+    count: k
+  };
+}
+
+// ── Analytics panel (RSSI violin + per-channel unique BSSID charts) ──────────
+// 6 GHz preferred scanning channels (PSC): ch 5, 21, 37 ... 229 (step 16 = 80 MHz)
+const PSC = [5,21,37,53,69,85,101,117,133,149,165,181,197,213,229];
+// Unique BSSIDs per PSC, stacked by bandwidth: bins[psc*5 + bwClass] (bw 20/40/80/160/320)
+const lpiChanBins = new Uint32Array(15 * 5);
+let lpiChanTotal = 0, lpiSamples = 0;
+const BW_STACK_COLORS = ['#4e79a7', '#f28e2b', '#59a14f', '#e15759', '#b07aa1'];
+const spChanBins = new Uint32Array(15 * 5);
+let spChanTotal = 0, spSamples = 0;
+const RSSI_BINS = 71;                                  // one-dB bins, -100..-30
+const anRssiHist     = new Uint32Array(5 * RSSI_BINS);  // by bandwidth class
+const anRssiChanHist = new Uint32Array(15 * RSSI_BINS); // by preferred scanning channel
+const BW_NAMES = ['20', '40', '80', '160', '320'];
+let violinMode = 'bw';  // 'bw' | 'ch'
+
+// Half-year buckets for the growth chart: 2020 H1 .. 2027 H2, as day offsets from 2020-01-01
+const YEAR_STARTS = [];
+const YEAR_NAMES  = [];
+for (let y = 2020; y <= 2030; y++) {
+  YEAR_STARTS.push(Math.round((Date.UTC(y, 0, 1) - Date.UTC(2020, 0, 1)) / 86400000));
+  YEAR_NAMES.push(String(y));
+}
+const timeBins = new Uint32Array(YEAR_STARTS.length);
+let timeTotal = 0;
+
+function yearBucket(days) {
+  for (let b = YEAR_STARTS.length - 1; b >= 0; b--) {
+    if (days >= YEAR_STARTS[b]) return b;
+  }
+  return 0;
+}
+
+const anPanel = document.getElementById('analytics');
+const anBtn   = document.getElementById('analytics-btn');
+
+function setAnalytics(open) {
+  anPanel.classList.toggle('open', open);
+  anBtn.classList.toggle('active', open);
+  if (open) drawAnalytics();
+}
+anBtn.addEventListener('click', () => setAnalytics(!anPanel.classList.contains('open')));
+document.getElementById('an-close').addEventListener('click', () => setAnalytics(false));
+
+// matplotlib-like color cycle for the per-channel violins
+const VIO_COLORS = ['#0969da','#bc4c00','#1a7f37','#cf222e','#8250df','#9a6700',
+                    '#39c5cf','#ff7b72','#7ee787','#79c0ff','#ffa657','#56d364',
+                    '#e3b341','#b083f0','#6cb6ff'];
+
+function quantileFromHist(raw, total, q) {
+  let cum = 0;
+  for (let j = 0; j < RSSI_BINS; j++) {
+    cum += raw[j];
+    if (cum >= total * q) return -100 + j;
+  }
+  return -30;
+}
+
+function drawViolin() {
+  const cv = document.getElementById('an-violin');
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  const mL = 34, mB = 22, mT = 16;
+  const plotW = W - mL - 6, plotH = H - mT - mB;
+  ctx.clearRect(0, 0, W, H);
+
+  const byCh = violinMode === 'ch';
+  const nCat = byCh ? 15 : 5;
+  const hist = byCh ? anRssiChanHist : anRssiHist;
+  const labels = byCh ? PSC : BW_NAMES;
+
+  // y axis: RSSI -30 (top) .. -100 (bottom), dashed grid like the reference plot
+  const yOf = r => mT + (-30 - r) / 70 * plotH;
+  ctx.setLineDash([3, 3]);
+  ctx.strokeStyle = '#d0d7de'; ctx.fillStyle = '#57606e';
+  ctx.font = '9px Inter, sans-serif'; ctx.textAlign = 'right';
+  for (const r of [-30, -40, -50, -60, -70, -80, -90, -100]) {
+    const y = yOf(r);
+    ctx.beginPath(); ctx.moveTo(mL, y); ctx.lineTo(W - 6, y); ctx.stroke();
+    ctx.fillText(r, mL - 4, y + 3);
+  }
+  ctx.setLineDash([]);
+
+  const colW = plotW / nCat;
+  let grandTotal = 0;
+  const K = [1, 2, 3, 2, 1], KS = 9;  // smoothing kernel
+
+  for (let b = 0; b < nCat; b++) {
+    const raw = hist.subarray(b * RSSI_BINS, (b + 1) * RSSI_BINS);
+    let total = 0; for (let j = 0; j < RSSI_BINS; j++) total += raw[j];
+    grandTotal += total;
+    const cx = mL + colW * b + colW / 2;
+
+    // x label (always, even for empty categories)
+    ctx.fillStyle = '#57606e'; ctx.textAlign = 'center'; ctx.font = '9px Inter, sans-serif';
+    ctx.fillText(byCh ? labels[b] : labels[b] + ' MHz', cx, H - 10);
+
+    if (!total) continue;
+
+    const sm = new Float32Array(RSSI_BINS);
+    let maxv = 0;
+    for (let j = 0; j < RSSI_BINS; j++) {
+      let s = 0;
+      for (let k = -2; k <= 2; k++) {
+        const jj = j + k;
+        if (jj >= 0 && jj < RSSI_BINS) s += raw[jj] * K[k + 2];
+      }
+      sm[j] = s / KS;
+      if (sm[j] > maxv) maxv = sm[j];
+    }
+
+    const half = colW * (byCh ? 0.46 : 0.42);
+    // BW mode uses the same colors as the stacked channel charts for consistency
+    const color = byCh ? VIO_COLORS[b % VIO_COLORS.length] : BW_STACK_COLORS[b];
+
+    ctx.beginPath();
+    for (let j = 0; j < RSSI_BINS; j++) ctx.lineTo(cx + sm[j] / maxv * half, yOf(-100 + j));
+    for (let j = RSSI_BINS - 1; j >= 0; j--) ctx.lineTo(cx - sm[j] / maxv * half, yOf(-100 + j));
+    ctx.closePath();
+    ctx.globalAlpha = 0.4; ctx.fillStyle = color; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.stroke();
+
+    // inner quartile lines (q1 dashed, median solid, q3 dashed) like inner="quartile"
+    const q1 = quantileFromHist(raw, total, 0.25);
+    const md = quantileFromHist(raw, total, 0.50);
+    const q3 = quantileFromHist(raw, total, 0.75);
+    ctx.strokeStyle = '#1f2328';
+    ctx.setLineDash([2, 2]); ctx.lineWidth = 1;
+    for (const qv of [q1, q3]) {
+      const y = yOf(qv);
+      ctx.beginPath(); ctx.moveTo(cx - half * 0.5, y); ctx.lineTo(cx + half * 0.5, y); ctx.stroke();
+    }
+    ctx.setLineDash([]); ctx.lineWidth = 1.5;
+    const my = yOf(md);
+    ctx.beginPath(); ctx.moveTo(cx - half * 0.6, my); ctx.lineTo(cx + half * 0.6, my); ctx.stroke();
+  }
+
+  // U-NII separators in channel mode
+  if (byCh) {
+    ctx.strokeStyle = 'rgba(248,81,73,0.5)'; ctx.setLineDash([4, 3]); ctx.lineWidth = 1;
+    for (const b of UNII_LINES) {
+      const x = mL + (b + 0.5) * colW;
+      ctx.beginPath(); ctx.moveTo(x, mT); ctx.lineTo(x, mT + plotH); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#cf222e'; ctx.font = 'bold 9px Inter, sans-serif'; ctx.textAlign = 'center';
+    for (const [name, pos] of UNII_LABELS) ctx.fillText(name, mL + (pos + 0.5) * colW, mT - 5);
+  }
+
+  ctx.fillStyle = '#57606e'; ctx.textAlign = 'center'; ctx.font = '9px Inter, sans-serif';
+  ctx.fillText(byCh ? 'Primary Scanning Ch. No.' : 'Channel Bandwidth', mL + plotW / 2, H - 1);
+
+  document.getElementById('an-violin-cap').textContent =
+    grandTotal > 0 ? 'Samples: ' + grandTotal.toLocaleString() +
+      ' — white lines: median (solid), quartiles (dashed)' : 'No samples in view';
+}
+
+document.getElementById('vio-bw').addEventListener('click', () => {
+  violinMode = 'bw';
+  document.getElementById('vio-bw').classList.add('active');
+  document.getElementById('vio-ch').classList.remove('active');
+  drawAnalytics();
+});
+document.getElementById('vio-ch').addEventListener('click', () => {
+  violinMode = 'ch';
+  document.getElementById('vio-ch').classList.add('active');
+  document.getElementById('vio-bw').classList.remove('active');
+  drawAnalytics();
+});
+
+// U-NII sub-band separators in PSC bin units (team convention):
+//   U-NII-5: ch 5..85 | U-NII-6/7 line mid-ch-117 | ch 181 under U-NII-8
+const UNII_LINES  = [5.5, 7, 10.5];
+const UNII_LABELS = [['U-NII-5', 2.5], ['U-NII-6', 6], ['U-NII-7', 9], ['U-NII-8', 13]];
+
+function drawChanChart(cvId, capId, bins, total, samples, hoverBin) {
+  const cv = document.getElementById(cvId);
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  const mL = 30, mB = 22, mT = 18;
+  const plotW = W - mL - 4, plotH = H - mT - mB;
+  ctx.clearRect(0, 0, W, H);
+
+  // per-channel totals (sum of the 5 bandwidth stacks)
+  const chTotals = new Array(15);
+  let maxCnt = 1;
+  for (let k = 0; k < 15; k++) {
+    let s = 0;
+    for (let b = 0; b < 5; b++) s += bins[k * 5 + b];
+    chTotals[k] = s;
+    if (s > maxCnt) maxCnt = s;
+  }
+
+  const slotW = plotW / 15;
+  const xOf = k => mL + k * slotW;
+
+  // y grid (dashed) + tick labels
+  ctx.strokeStyle = '#d0d7de'; ctx.setLineDash([3, 3]);
+  ctx.fillStyle = '#57606e'; ctx.font = '9px Inter, sans-serif'; ctx.textAlign = 'right';
+  for (let g = 0; g <= 4; g++) {
+    const v = Math.round(maxCnt * g / 4);
+    const y = mT + plotH - plotH * g / 4;
+    ctx.beginPath(); ctx.moveTo(mL, y); ctx.lineTo(W - 4, y); ctx.stroke();
+    ctx.fillText(v >= 1000 ? (v / 1000).toFixed(v >= 10000 ? 0 : 1) + 'k' : v, mL - 3, y + 3);
+  }
+  ctx.setLineDash([]);
+
+  // stacked bars, white edges like the reference plot
+  for (let k = 0; k < 15; k++) {
+    if (!chTotals[k]) continue;
+    let yBottom = mT + plotH;
+    for (let b = 0; b < 5; b++) {
+      const v = bins[k * 5 + b];
+      if (!v) continue;
+      const h = v / maxCnt * plotH;
+      ctx.fillStyle = BW_STACK_COLORS[b];
+      ctx.globalAlpha = (hoverBin >= 0 && k !== hoverBin) ? 0.35 : 1;
+      ctx.fillRect(xOf(k) + slotW * 0.15, yBottom - h, slotW * 0.7, h);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 0.5;
+      ctx.strokeRect(xOf(k) + slotW * 0.15, yBottom - h, slotW * 0.7, h);
+      yBottom -= h;
+    }
+  }
+
+  // U-NII separators + labels
+  ctx.strokeStyle = '#cf222e'; ctx.lineWidth = 1;
+  for (const b of UNII_LINES) {
+    const x = mL + (b + 0.5) * slotW;
+    ctx.beginPath(); ctx.moveTo(x, mT); ctx.lineTo(x, mT + plotH); ctx.stroke();
+  }
+  ctx.fillStyle = '#cf222e'; ctx.font = '9px Inter, sans-serif'; ctx.textAlign = 'center';
+  for (const [name, pos] of UNII_LABELS) {
+    ctx.fillText(name, mL + (pos + 0.5) * slotW, mT - 6);
+  }
+
+  // bandwidth legend, upper right
+  ctx.font = '8px Inter, sans-serif'; ctx.textAlign = 'left';
+  let lx = W - 52, ly = mT + 4;
+  for (let b = 0; b < 5; b++) {
+    ctx.fillStyle = BW_STACK_COLORS[b];
+    ctx.fillRect(lx, ly - 6, 8, 8);
+    ctx.fillStyle = '#1f2328';
+    ctx.fillText(BW_NAMES[b] + ' MHz', lx + 11, ly + 1);
+    ly += 11;
+  }
+
+  // baseline + channel number labels
+  ctx.strokeStyle = '#d0d7de';
+  ctx.beginPath(); ctx.moveTo(mL, mT + plotH + 0.5); ctx.lineTo(W - 4, mT + plotH + 0.5); ctx.stroke();
+  ctx.fillStyle = '#57606e'; ctx.textAlign = 'center'; ctx.font = '9px Inter, sans-serif';
+  for (let k = 0; k < 15; k++) {
+    ctx.fillText(PSC[k], xOf(k) + slotW / 2, H - 10);
+  }
+  ctx.fillText('Primary Scanning Ch. No.', mL + plotW / 2, H - 1);
+
+  const cap = document.getElementById(capId);
+  if (hoverBin >= 0 && chTotals[hoverBin] > 0) {
+    const parts = [];
+    for (let b = 0; b < 5; b++) {
+      const v = bins[hoverBin * 5 + b];
+      if (v) parts.push(BW_NAMES[b] + ': ' + v.toLocaleString());
+    }
+    cap.textContent = 'Ch ' + PSC[hoverBin] + ' — ' + chTotals[hoverBin].toLocaleString() +
+      ' BSSIDs (' + parts.join(', ') + ')';
+  } else if (total > 0) {
+    cap.textContent = 'Samples: ' + samples.toLocaleString() +
+      '  |  Unique BSSIDs: ' + total.toLocaleString();
+  } else if (!bssids) {
+    cap.textContent = 'Loading AP details...';
+  } else {
+    cap.textContent = 'None in view';
+  }
+}
+
+function drawTimeChart() {
+  const cv = document.getElementById('an-time');
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  const mL = 38, mB = 22, mT = 14;
+  const plotW = W - mL - 6, plotH = H - mT - mB;
+  ctx.clearRect(0, 0, W, H);
+
+  // visible bucket range: first..last nonzero
+  let first = -1, last = -1;
+  for (let b = 0; b < timeBins.length; b++) {
+    if (timeBins[b]) { if (first < 0) first = b; last = b; }
+  }
+  const cap = document.getElementById('an-time-cap');
+  if (first < 0) {
+    cap.textContent = !bssids ? 'Loading AP details...' : 'No dated APs in view';
+    return;
+  }
+
+  const nB = last - first + 1;
+  const slotW = plotW / nB;
+  let maxCnt = 1;
+  for (let b = first; b <= last; b++) if (timeBins[b] > maxCnt) maxCnt = timeBins[b];
+
+  // y grid
+  ctx.setLineDash([3, 3]); ctx.strokeStyle = '#d0d7de';
+  ctx.fillStyle = '#57606e'; ctx.font = '9px Inter, sans-serif'; ctx.textAlign = 'right';
+  for (let g = 0; g <= 4; g++) {
+    const v = Math.round(maxCnt * g / 4);
+    const y = mT + plotH - plotH * g / 4;
+    ctx.beginPath(); ctx.moveTo(mL, y); ctx.lineTo(W - 6, y); ctx.stroke();
+    ctx.fillText(v >= 1000 ? (v / 1000).toFixed(v >= 10000 ? 0 : 1) + 'k' : v, mL - 3, y + 3);
+  }
+  ctx.setLineDash([]);
+
+  // bars + value labels
+  for (let b = first; b <= last; b++) {
+    const k = b - first;
+    const v = timeBins[b];
+    const h = v / maxCnt * plotH;
+    const x = mL + k * slotW + slotW * 0.18;
+    ctx.fillStyle = '#1a7f37';
+    ctx.fillRect(x, mT + plotH - h, slotW * 0.64, h);
+    if (v) {
+      ctx.fillStyle = '#1f2328'; ctx.textAlign = 'center'; ctx.font = '9px Inter, sans-serif';
+      ctx.fillText(v >= 10000 ? Math.round(v / 1000) + 'k' : v.toLocaleString(),
+                   x + slotW * 0.32, mT + plotH - h - 4);
+    }
+    // x label
+    ctx.fillStyle = '#57606e';
+    ctx.fillText(YEAR_NAMES[b], mL + k * slotW + slotW / 2, H - 10);
+  }
+
+  ctx.strokeStyle = '#d0d7de';
+  ctx.beginPath(); ctx.moveTo(mL, mT + plotH + 0.5); ctx.lineTo(W - 6, mT + plotH + 0.5); ctx.stroke();
+  ctx.fillStyle = '#57606e'; ctx.textAlign = 'center';
+  ctx.fillText('Year of Observation', mL + plotW / 2, H - 1);
+
+  cap.textContent = 'Unique BSSIDs observed per year — total ' + timeTotal.toLocaleString();
+}
+
+let anLpiHover = -1, anSpHover = -1;
+
+function drawAnalytics() {
+  if (!anPanel.classList.contains('open')) return;
+  drawViolin();
+  drawChanChart('an-lpi', 'an-lpi-cap', lpiChanBins, lpiChanTotal, lpiSamples, anLpiHover);
+  drawChanChart('an-sp',  'an-sp-cap',  spChanBins,  spChanTotal,  spSamples,  anSpHover);
+  drawTimeChart();
+}
+
+function chanHover(cvId, setter) {
+  const cv = document.getElementById(cvId);
+  cv.addEventListener('mousemove', e => {
+    const r = cv.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width * cv.width;  // CSS px -> canvas px
+    const bin = Math.floor((px - 30) / ((cv.width - 34) / 15));
+    setter(bin >= 0 && bin < 15 ? bin : -1);
+    drawAnalytics();
+  });
+  cv.addEventListener('mouseleave', () => { setter(-1); drawAnalytics(); });
+}
+chanHover('an-lpi', v => anLpiHover = v);
+chanHover('an-sp',  v => anSpHover  = v);
+
+// AP-type breakdown: in-view count (live) alongside full-dataset total
+function updateBreakdownBars(typeCounts) {
+  const aptEl = document.getElementById('aptype-list');
+  const maxAP = Math.max(1, ...typeCounts);
+  let html = '';
+  AP_CATS.forEach((c, i) => {
+    const cnt   = typeCounts[i];
+    const total = (META && META.ap_types && META.ap_types[c]) || 0;
+    if (!cnt && !total) return;
+    const [r,g,b] = AP_COLORS[i];
+    const pct = Math.round(cnt / maxAP * 100);
+    html += `<div class="aptype-row" title="${c}: ${cnt.toLocaleString()} in view / ${total.toLocaleString()} in full dataset">
+      <div class="aptype-dot" style="background:rgb(${r},${g},${b})"></div>
+      <span class="aptype-name">${c}</span>
+      <div class="aptype-bar-wrap"><div class="aptype-bar" style="width:${pct}%;background:rgb(${r},${g},${b})"></div></div>
+      <span class="aptype-count">${cnt.toLocaleString()}<br><span style="font-size:9px;opacity:.65">/ ${total.toLocaleString()}</span></span>
+    </div>`;
+  });
+  aptEl.innerHTML = html || '<div style="font-size:11px;color:var(--muted)">None in view</div>';
+}
+
+// ── In-view counting — stats for whatever region is currently on screen ──────
+let viewCountTimer = null;
+function scheduleViewCount() {
+  if (viewCountTimer) clearTimeout(viewCountTimer);
+  viewCountTimer = setTimeout(updateViewCount, 250);
+}
+
+function passesFilters(i) {
+  const {ap, rssi: minRssi, bw, std, env} = filters;
+  if (ap !== 255 && apTypes[i] !== ap) return false;
+  if (bw !== 0   && widths[i]  !== bw) return false;
+  if (std !== 255 && stdIdxs[i] !== std) return false;
+  if (env !== 255 && envs[i]    !== env) return false;
+  if (minRssi > -100 && (rssis[i] === -128 || rssis[i] < minRssi)) return false;
+  return true;
+}
+
+function updateViewCount() {
+  if (!N) return;
+  const wrap = document.getElementById('map-wrap');
+  const viewport = new deck.WebMercatorViewport({
+    width: wrap.clientWidth, height: wrap.clientHeight, ...curViewState
+  });
+  const [west, south, east, north] = viewport.getBounds();
+
+  let inView = 0;
+  const typeCounts = new Uint32Array(AP_CATS.length);
+  lpiChanBins.fill(0); lpiChanTotal = 0; lpiSamples = 0;
+  spChanBins.fill(0);  spChanTotal  = 0; spSamples  = 0;
+  anRssiHist.fill(0);
+  anRssiChanHist.fill(0);
+  timeBins.fill(0); timeTotal = 0;
+  const seenBssids = new Set();  // dedup: each BSSID counted once per view
+  const timeSeen   = new Set();  // dedup for the growth chart (all AP types)
+  for (let i = 0; i < N; i++) {
+    if (!passesFilters(i)) continue;
+    const la = lats[i], lo = lons[i];
+    if (la < south || la > north || lo < west || lo > east) continue;
+    inView++;
+    const t = apTypes[i];
+    typeCounts[t]++;
+
+    // RSSI histograms (violin plots): one-dB bins, -100..-30
+    const wEnc = widths[i];
+    const rBin = rssis[i] === -128 ? -1 : Math.max(0, Math.min(RSSI_BINS - 1, rssis[i] + 100));
+    if (rBin >= 0 && wEnc >= 1 && wEnc <= 5) {
+      anRssiHist[(wEnc - 1) * RSSI_BINS + rBin]++;
+    }
+
+    // Per preferred scanning channel (PSC): ch = (primary_freq - 5950) / 5, PSC are ch 5 + 16k
+    const ch = freqIdxs[i] - 5;
+    const isPsc = ch >= 5 && (ch - 5) % 16 === 0 && (ch - 5) / 16 < 15;
+    if (isPsc && rBin >= 0) {
+      anRssiChanHist[((ch - 5) / 16) * RSSI_BINS + rBin]++;
+    }
+
+    // Growth chart: unique BSSIDs (all types) bucketed by half-year of observation
+    if (bssids && dateDays) {
+      const o6 = i * 6;
+      const tKey = (bssids[o6] * 256 + bssids[o6+1]) * 4294967296 +
+                   bssids[o6+2] * 16777216 + bssids[o6+3] * 65536 +
+                   bssids[o6+4] * 256 + bssids[o6+5];
+      if (!timeSeen.has(tKey)) {
+        timeSeen.add(tKey);
+        timeBins[yearBucket(dateDays[i])]++;
+        timeTotal++;
+      }
+    }
+
+    // Unique BSSIDs per PSC stacked by bandwidth, for LPI and SP (width 0 excluded)
+    if ((t === IDX_LPI || t === IDX_SP) && bssids && isPsc && wEnc >= 1 && wEnc <= 5) {
+      const bin = (ch - 5) / 16;
+      if (t === IDX_LPI) lpiSamples++; else spSamples++;
+      const o = i * 6;
+      // pack the 6-byte BSSID into one number (48 bits fits a JS safe integer)
+      const key = (bssids[o] * 256 + bssids[o+1]) * 4294967296 +
+                  bssids[o+2] * 16777216 + bssids[o+3] * 65536 +
+                  bssids[o+4] * 256 + bssids[o+5];
+      if (!seenBssids.has(key)) {
+        seenBssids.add(key);
+        if (t === IDX_LPI) { lpiChanBins[bin * 5 + wEnc - 1]++; lpiChanTotal++; }
+        else         { spChanBins[bin * 5 + wEnc - 1]++;  spChanTotal++;  }
+      }
+    }
+  }
+  drawAnalytics();
+
+  const breakdown = AP_CATS
+    .map((n, j) => typeCounts[j] ? n + ' ' + typeCounts[j].toLocaleString() : null)
+    .filter(Boolean).join(' · ');
+  updateBreakdownBars(typeCounts);
+
+  document.getElementById('top-badge').textContent = inView.toLocaleString() + ' APs in view';
+  document.getElementById('showing-count').innerHTML =
+    'In view: <b>' + inView.toLocaleString() + '</b> APs' +
+    (breakdown ? '<br><span style="font-size:10px">' + breakdown + '</span>' : '');
+}
+
+function refresh() {
+  if (!deckInstance) return;
+  const {positions, colors, count} = getFilteredWithIndex();
+  scheduleViewCount();
+
+  deckInstance.setProps({
+    layers: [new ScatterplotLayer({
+      id: 'aps',
+      data: {
+        length: count,
+        attributes: {
+          getPosition: {value: positions, size: 2},
+          getFillColor: {value: colors,   size: 4},
+        }
+      },
+      getRadius: 40,
+      radiusMinPixels: 2,
+      radiusMaxPixels: 8,
+      pickable: true,
+      autoHighlight: true,
+      highlightColor: [0, 0, 0, 60],
+      onClick: ({index}) => {
+        const rawIdx = filteredIndices ? filteredIndices[index] : index;
+        showDetail(rawIdx);
+      }
+    })]
+  });
+}
+
+// ── Detail panel ──────────────────────────────────────────────────────────────
+function showDetail(i) {
+  const rssi  = rssis[i];
+  const freq  = 5925 + freqIdxs[i] * 5;
+  const wMhz  = WIDTH_MHZ[widths[i]] || '?';
+  const aptName = AP_CATS[apTypes[i]] || 'Unknown';
+  const stdName = META ? (META.standards[stdIdxs[i]] || '--') : '--';
+  const dateStr = dateDays ? daysToDate(dateDays[i]) : '--';
+  const lat   = lats[i].toFixed(5);
+  const lon   = lons[i].toFixed(5);
+
+  const rssiDisp = rssi === -128 ? '--'
+    : `<span class="${rssiClass(rssi)}">${rssi} dBm</span>`;
+
+  const envName = ['Indoor', 'Outdoor', 'Mixed', 'Unknown'][envs[i]] || 'Unknown';
+  const rows = [
+    ['Environment', envName],
+    ['Frequency', `${freq} MHz`],
+    ['Width',     `${wMhz} MHz`],
+    ['RSSI',      rssiDisp],
+    ['AP Type',   aptName],
+    ['Standard',  stdName],
+    ['Coords',    `${lat}, ${lon}`],
+    ['Date',      dateStr],
+  ];
+  document.getElementById('dtbl').innerHTML =
+    rows.map(([k,v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+  document.getElementById('detail').style.display = 'block';
+}
+
+// ── Sidebar population ────────────────────────────────────────────────────────
+function populateSidebar(meta) {
+  document.getElementById('s-total').textContent = meta.count.toLocaleString();
+  document.getElementById('s-files').textContent = meta.files.toLocaleString();
+  document.getElementById('s-dates').textContent = meta.date_range;
+
+  // AP type bars
+  // AP Type filter options + legend, from data-derived categories
+  const apSel = document.getElementById('f-ap');
+  const legEl = document.getElementById('legend-list');
+  AP_CATS.forEach((c, i) => {
+    const o = document.createElement('option');
+    o.value = i; o.textContent = c;
+    apSel.appendChild(o);
+    const [r,g,b] = AP_COLORS[i];
+    legEl.innerHTML += `<div class="legend-item"><div class="legend-dot" style="background:rgb(${r},${g},${b})"></div>${c}</div>`;
+  });
+
+  // Standard filter (skip empty entries)
+  const stdSel = document.getElementById('f-std');
+  meta.standards.forEach((s, i) => {
+    if (!s) return;
+    const o = document.createElement('option');
+    o.value = i; o.textContent = s;
+    stdSel.appendChild(o);
+  });
+
+  // BW chips
+  const bwWrap = document.getElementById('bw-chips');
+  (meta.widths || []).forEach(w => {
+    const enc = {20:1,40:2,80:3,160:4,320:5}[w] ?? 0;
+    if (!enc) return;
+    const chip = document.createElement('span');
+    chip.className = 'bw-chip';
+    chip.dataset.w = enc;
+    chip.textContent = w + ' MHz';
+    bwWrap.appendChild(chip);
+  });
+  bwWrap.querySelectorAll('.bw-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      bwWrap.querySelectorAll('.bw-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      filters.bw = parseInt(chip.dataset.w);
+      refresh();
+    });
+  });
+}
+
+// ── Binary parsers ────────────────────────────────────────────────────────────
+// Planar layout: typed-array views directly onto the downloaded buffer — no copy loop.
+function parsePointsBin(buf) {
+  N = new DataView(buf).getUint32(0, true);
+  let o = 4;
+  lats     = new Float32Array(buf, o, N); o += N * 4;
+  lons     = new Float32Array(buf, o, N); o += N * 4;
+  rssis    = new Int8Array  (buf, o, N); o += N;
+  apTypes  = new Uint8Array (buf, o, N); o += N;
+  widths   = new Uint8Array (buf, o, N); o += N;
+  opIdxs   = new Uint8Array (buf, o, N); o += N;
+  stdIdxs  = new Uint8Array (buf, o, N); o += N;
+  freqIdxs = new Uint8Array (buf, o, N); o += N;
+  envs     = new Uint8Array (buf, o, N);
+}
+
+function parseDetailsBin(buf) {
+  const cnt = new DataView(buf).getUint32(0, true);
+  bssids   = new Uint8Array (buf, 4, cnt * 6);
+  dateDays = new Uint16Array(buf, 4 + cnt * 6, cnt);
+}
+
+// ── Load & init ───────────────────────────────────────────────────────────────
+function setProgress(pct, msg) {
+  document.getElementById('prog').style.width = pct + '%';
+  if (msg) document.getElementById('loader-msg').textContent = msg;
+}
+
+async function init() {
+  try {
+    setProgress(5, 'Loading map data...');
+
+    // Load points.bin + meta.json in parallel
+    const [pointsBuf, metaJson] = await Promise.all([
+      fetch('points.bin').then(r => { setProgress(30); return r.arrayBuffer(); }),
+      fetch('meta.json').then(r => r.json()),
+    ]);
+
+    setProgress(55, 'Parsing binary data...');
+    META = metaJson;
+    initApCats(META.ap_cats || ['LPI', 'SP', 'Indoor SP', 'VLP', 'Unknown']);
+    IDX_LPI = AP_CATS.indexOf('LPI');
+    IDX_SP  = AP_CATS.indexOf('SP');
+    parsePointsBin(pointsBuf);
+    buildColorBuf();
+    populateSidebar(META);
+
+    setProgress(75, 'Initialising map...');
+
+    // Init deck.gl
+    deckInstance = new DeckGL({
+      container: 'map',
+      mapStyle: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+      initialViewState: curViewState,
+      controller: true,
+      layers: [],
+      onViewStateChange: ({viewState}) => { curViewState = viewState; scheduleViewCount(); },
+    });
+
+    setProgress(90, 'Rendering...');
+    refresh();
+
+    document.getElementById('loader').style.display = 'none';
+
+    // Load details.bin in background (needed for click panel)
+    fetch('details.bin')
+      .then(r => r.arrayBuffer())
+      .then(buf => { parseDetailsBin(buf); scheduleViewCount(); })
+      .catch(e => console.warn('details.bin failed:', e));
+
+  } catch(e) {
+    document.getElementById('loader').innerHTML =
+      `<p style="color:#cf222e">Failed to load data<br>${e.message}</p>`;
+  }
+}
+
+// ── Box zoom (select a region to zoom) ────────────────────────────────────────
+let curViewState = {longitude: -96, latitude: 38, zoom: 3.5, pitch: 0, bearing: 0};
+
+const bzBtn     = document.getElementById('boxzoom-btn');
+const bzOverlay = document.getElementById('boxzoom-overlay');
+const bzRect    = document.getElementById('boxzoom-rect');
+const bzHint    = document.getElementById('boxzoom-hint');
+let bzActive = false, bzStart = null;
+
+function setBoxZoom(on) {
+  bzActive = on;
+  bzBtn.classList.toggle('active', on);
+  bzOverlay.style.display = on ? 'block' : 'none';
+  bzHint.style.display    = on ? 'block' : 'none';
+  bzRect.style.display = 'none';
+  bzStart = null;
+}
+
+bzBtn.addEventListener('click', () => setBoxZoom(!bzActive));
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && bzActive) setBoxZoom(false); });
+
+bzOverlay.addEventListener('pointerdown', e => {
+  bzStart = [e.offsetX, e.offsetY];
+  bzRect.style.display = 'block';
+  bzRect.style.left = e.offsetX + 'px';
+  bzRect.style.top  = e.offsetY + 'px';
+  bzRect.style.width = '0px';
+  bzRect.style.height = '0px';
+  bzOverlay.setPointerCapture(e.pointerId);
+});
+
+bzOverlay.addEventListener('pointermove', e => {
+  if (!bzStart) return;
+  const x0 = Math.min(bzStart[0], e.offsetX), y0 = Math.min(bzStart[1], e.offsetY);
+  const x1 = Math.max(bzStart[0], e.offsetX), y1 = Math.max(bzStart[1], e.offsetY);
+  bzRect.style.left   = x0 + 'px';
+  bzRect.style.top    = y0 + 'px';
+  bzRect.style.width  = (x1 - x0) + 'px';
+  bzRect.style.height = (y1 - y0) + 'px';
+});
+
+bzOverlay.addEventListener('pointerup', e => {
+  if (!bzStart) return;
+  const x0 = Math.min(bzStart[0], e.offsetX), y0 = Math.min(bzStart[1], e.offsetY);
+  const x1 = Math.max(bzStart[0], e.offsetX), y1 = Math.max(bzStart[1], e.offsetY);
+  const wrap = document.getElementById('map-wrap');
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+
+  setBoxZoom(false);
+  if (x1 - x0 < 10 || y1 - y0 < 10) return;  // too small — treat as accidental click
+
+  // Convert the two screen corners to geographic coordinates
+  const viewport = new deck.WebMercatorViewport({width: w, height: h, ...curViewState});
+  const [lng0, lat0] = viewport.unproject([x0, y0]);
+  const [lng1, lat1] = viewport.unproject([x1, y1]);
+
+  // Fit the view to that bounding box
+  const fitted = viewport.fitBounds(
+    [[Math.min(lng0, lng1), Math.min(lat0, lat1)], [Math.max(lng0, lng1), Math.max(lat0, lat1)]],
+    {padding: 40}
+  );
+
+  curViewState = {
+    longitude: fitted.longitude, latitude: fitted.latitude, zoom: fitted.zoom,
+    pitch: 0, bearing: 0,
+    transitionDuration: 600,
+  };
+  deckInstance.setProps({initialViewState: curViewState});
+  scheduleViewCount();
+});
+
+// ── Place search (OpenStreetMap Nominatim geocoder) ───────────────────────────
+const searchBox   = document.getElementById('searchbox');
+const searchInput = document.getElementById('search-input');
+
+searchInput.addEventListener('keydown', async e => {
+  if (e.key !== 'Enter') return;
+  const q = searchInput.value.trim();
+  if (!q) return;
+
+  searchBox.classList.add('searching');
+  try {
+    // Primary: Photon (no key, lenient limits). Fallback: Nominatim.
+    let bbox = null;  // [west, south, east, north]
+    try {
+      const resp = await fetch('https://photon.komoot.io/api/?limit=1&lang=en&q=' + encodeURIComponent(q));
+      const data = await resp.json();
+      if (data.features && data.features.length) {
+        const f = data.features[0];
+        if (f.properties.extent) {
+          // extent: [west, north, east, south]
+          const [w, n, ee, s] = f.properties.extent;
+          bbox = [w, s, ee, n];
+        } else {
+          const [lng, lat] = f.geometry.coordinates;
+          bbox = [lng - 0.01, lat - 0.01, lng + 0.01, lat + 0.01];
+        }
+      }
+    } catch (_) { /* fall through to Nominatim */ }
+
+    if (!bbox) {
+      const resp = await fetch(
+        'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(q),
+        { headers: { 'Accept-Language': 'en' } }
+      );
+      const results = await resp.json();
+      if (results.length) {
+        // Nominatim boundingbox: [south, north, west, east] as strings
+        const [s, n, w, ee] = results[0].boundingbox.map(parseFloat);
+        bbox = [w, s, ee, n];
+      }
+    }
+
+    if (!bbox) {
+      searchInput.value = '';
+      searchInput.placeholder = 'No results for "' + q + '" — try again';
+      return;
+    }
+    const [w, s, ee, n] = bbox;
+    const wrap = document.getElementById('map-wrap');
+    const viewport = new deck.WebMercatorViewport({
+      width: wrap.clientWidth, height: wrap.clientHeight, ...curViewState
+    });
+    const fitted = viewport.fitBounds([[w, s], [ee, n]], {padding: 40, maxZoom: 16});
+    curViewState = {
+      longitude: fitted.longitude, latitude: fitted.latitude, zoom: fitted.zoom,
+      pitch: 0, bearing: 0, transitionDuration: 900,
+    };
+    deckInstance.setProps({initialViewState: curViewState});
+    scheduleViewCount();
+    searchInput.blur();
+  } catch (err) {
+    searchInput.placeholder = 'Search failed — try again';
+  } finally {
+    searchBox.classList.remove('searching');
+  }
+});
+
+// ── Filter event listeners ────────────────────────────────────────────────────
+document.getElementById('f-ap').addEventListener('change', function() {
+  filters.ap = parseInt(this.value); refresh();
+});
+document.getElementById('f-std').addEventListener('change', function() {
+  filters.std = parseInt(this.value); refresh();
+});
+document.getElementById('f-env').addEventListener('change', function() {
+  filters.env = parseInt(this.value); refresh();
+});
+document.getElementById('f-rssi').addEventListener('input', function() {
+  const v = parseInt(this.value);
+  filters.rssi = v;
+  document.getElementById('rssi-val').textContent = v <= -100 ? 'Any' : v + ' dBm';
+  refresh();
+});
+
+init();
+</script>
+</body>
+</html>

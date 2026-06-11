@@ -1,0 +1,13 @@
+# Raw collection data (too large for GitHub, stays local)
+data/
+
+# Obsolete / local-only artifacts
+data.json
+6ghz_map.html
+node_modules/
+package.json
+package-lock.json
+make_report.js
+6GHz_Map_Project_Report.docx
+~$*.docx
+.claude/
