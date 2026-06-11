@@ -104,8 +104,14 @@ for zpath in glob.glob(os.path.join(DATA_DIR, "*.zip")):
         except Exception as ex:
             print(f"  Could not extract {os.path.basename(zpath)}: {ex}")
 
+# ── Excluded files (known-bad collections, skipped entirely) ─────────────────
+EXCLUDE_FILES = {
+    "2026_02_S20_1758_E26_1119Z-0500_unknown_AT&T_fbd516f0_backup.debug_wifi.csv",
+}
+
 # ── Find new CSVs ─────────────────────────────────────────────────────────────
-all_csvs = glob.glob(os.path.join(DATA_DIR, "**", "*.csv"), recursive=True)
+all_csvs = [f for f in glob.glob(os.path.join(DATA_DIR, "**", "*.csv"), recursive=True)
+            if os.path.basename(f) not in EXCLUDE_FILES]
 new_csvs = [f for f in all_csvs if os.path.normpath(f) not in processed_set]
 print(f"Total CSVs: {len(all_csvs)}  |  New: {len(new_csvs)}")
 
@@ -162,29 +168,8 @@ if new_csvs:
 else:
     print("No new files — regenerating outputs from cache.")
 
-# ── Drop in-vehicle APs ───────────────────────────────────────────────────────
-# A fixed AP can't be heard beyond a few hundred meters. Any BSSID whose
-# observations span more than MAX_AP_SPAN_KM is onboard equipment (bus/train
-# Wi-Fi, phone hotspot in the car) and would paint false trails on the map.
-MAX_AP_SPAN_KM = 2.0
-_span = {}
-for p in points_map.values():
-    s = _span.get(p["b"])
-    if s is None:
-        _span[p["b"]] = [p["a"], p["a"], p["o"], p["o"]]
-    else:
-        if p["a"] < s[0]: s[0] = p["a"]
-        if p["a"] > s[1]: s[1] = p["a"]
-        if p["o"] < s[2]: s[2] = p["o"]
-        if p["o"] > s[3]: s[3] = p["o"]
-
-mobile_bssids = {b for b, (la0, la1, lo0, lo1) in _span.items()
-                 if max((la1 - la0) * 111, (lo1 - lo0) * 85) > MAX_AP_SPAN_KM}
-
 # ── Build index structures ────────────────────────────────────────────────────
-display   = [p for p in points_map.values() if p["b"] not in mobile_bssids]
-dropped   = len(points_map) - len(display)
-print(f"Dropped {dropped:,} points from {len(mobile_bssids)} in-vehicle BSSIDs (span > {MAX_AP_SPAN_KM} km)")
+display   = list(points_map.values())
 N         = len(display)
 operators = sorted(set(p["p"] for p in display))
 standards = sorted(set(p["d"] or "" for p in display))
