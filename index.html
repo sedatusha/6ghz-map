@@ -472,7 +472,7 @@ const anBtn   = document.getElementById('analytics-btn');
 function setAnalytics(open) {
   anPanel.classList.toggle('open', open);
   anBtn.classList.toggle('active', open);
-  if (open) drawAnalytics();
+  if (open) updateViewCount();  // aggregation is skipped while closed — regather now
 }
 anBtn.addEventListener('click', () => setAnalytics(!anPanel.classList.contains('open')));
 document.getElementById('an-close').addEventListener('click', () => setAnalytics(false));
