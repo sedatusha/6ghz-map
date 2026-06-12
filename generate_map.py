@@ -511,8 +511,11 @@ input[type=range]{width:100%;padding:0;cursor:pointer;accent-color:var(--accent)
     </div>
     <div id="analytics">
       <div class="an-head">
-        <span>In-View Analytics</span>
-        <button id="an-close">&#x2715;</button>
+        <span>In-View Analytics <span id="an-pin-label" style="font-weight:400;color:var(--muted);margin-left:10px"></span></span>
+        <span style="display:flex;gap:10px;align-items:center">
+          <button id="an-pin" style="font-size:11px;font-weight:600;border:1px solid var(--border);border-radius:6px;padding:3px 10px;color:var(--text)">&#x1F4CC; Pin region</button>
+          <button id="an-close">&#x2715;</button>
+        </span>
       </div>
       <div class="an-charts">
         <div class="an-chart">
@@ -832,6 +835,32 @@ function drawViolin() {
     ctx.globalAlpha = 0.4; ctx.fillStyle = color; ctx.fill(); ctx.globalAlpha = 1;
     ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.stroke();
 
+    // pinned region overlay: dashed gray outline violin
+    if (pinned) {
+      const pHist = byCh ? pinned.rssiCh : pinned.rssiBw;
+      const praw = pHist.subarray(b * RSSI_BINS, (b + 1) * RSSI_BINS);
+      let ptot = 0; for (let j = 0; j < RSSI_BINS; j++) ptot += praw[j];
+      if (ptot) {
+        const psm = new Float32Array(RSSI_BINS);
+        let pmax = 0;
+        for (let j = 0; j < RSSI_BINS; j++) {
+          let v = 0;
+          for (let k = -2; k <= 2; k++) {
+            const jj = j + k;
+            if (jj >= 0 && jj < RSSI_BINS) v += praw[jj] * K[k + 2];
+          }
+          psm[j] = v / KS;
+          if (psm[j] > pmax) pmax = psm[j];
+        }
+        ctx.beginPath();
+        for (let j = 0; j < RSSI_BINS; j++) ctx.lineTo(cx + psm[j] / pmax * half, yOf(-100 + j));
+        for (let j = RSSI_BINS - 1; j >= 0; j--) ctx.lineTo(cx - psm[j] / pmax * half, yOf(-100 + j));
+        ctx.closePath();
+        ctx.strokeStyle = '#6e7781'; ctx.setLineDash([3, 2]); ctx.lineWidth = 1.2;
+        ctx.stroke(); ctx.setLineDash([]);
+      }
+    }
+
     // inner quartile lines (q1 dashed, median solid, q3 dashed) like inner="quartile"
     const q1 = quantileFromHist(raw, total, 0.25);
     const md = quantileFromHist(raw, total, 0.50);
@@ -906,32 +935,79 @@ function drawChanChart(cvId, capId, bins, total, samples, hoverBin) {
   const slotW = plotW / 15;
   const xOf = k => mL + k * slotW;
 
-  // y grid (dashed) + tick labels
+  // y grid (dashed) + tick labels (drawn below, after scale is known)
+
+  // pinned-region comparison: per-channel totals as % of each region's BSSIDs
+  const pin = pinned ? (cvId === 'an-lpi' ? {bins: pinned.lpi, total: pinned.lpiTotal}
+                                          : {bins: pinned.sp,  total: pinned.spTotal}) : null;
+  let pinPct = null, curPct = null, maxPct = 0;
+  if (pin) {
+    pinPct = new Array(15).fill(0); curPct = new Array(15).fill(0);
+    for (let k = 0; k < 15; k++) {
+      let ps = 0; for (let b = 0; b < 5; b++) ps += pin.bins[k * 5 + b];
+      pinPct[k] = pin.total ? ps / pin.total * 100 : 0;
+      curPct[k] = total ? chTotals[k] / total * 100 : 0;
+      maxPct = Math.max(maxPct, pinPct[k], curPct[k]);
+    }
+    maxPct = maxPct || 1;
+  }
+
+  // grid + ticks
   ctx.strokeStyle = '#d0d7de'; ctx.setLineDash([3, 3]);
   ctx.fillStyle = '#57606e'; ctx.font = '9px Inter, sans-serif'; ctx.textAlign = 'right';
   for (let g = 0; g <= 4; g++) {
-    const v = Math.round(maxCnt * g / 4);
     const y = mT + plotH - plotH * g / 4;
     ctx.beginPath(); ctx.moveTo(mL, y); ctx.lineTo(W - 4, y); ctx.stroke();
-    ctx.fillText(v >= 1000 ? (v / 1000).toFixed(v >= 10000 ? 0 : 1) + 'k' : v, mL - 3, y + 3);
+    const tick = pin ? (maxPct * g / 4).toFixed(maxPct < 8 ? 1 : 0) + '%'
+                     : (() => { const v = Math.round(maxCnt * g / 4);
+                        return v >= 1000 ? (v / 1000).toFixed(v >= 10000 ? 0 : 1) + 'k' : v; })();
+    ctx.fillText(tick, mL - 3, y + 3);
   }
   ctx.setLineDash([]);
 
-  // stacked bars, white edges like the reference plot
-  for (let k = 0; k < 15; k++) {
-    if (!chTotals[k]) continue;
-    let yBottom = mT + plotH;
-    for (let b = 0; b < 5; b++) {
-      const v = bins[k * 5 + b];
-      if (!v) continue;
-      const h = v / maxCnt * plotH;
-      ctx.fillStyle = BW_STACK_COLORS[b];
-      ctx.globalAlpha = (hoverBin >= 0 && k !== hoverBin) ? 0.35 : 1;
-      ctx.fillRect(xOf(k) + slotW * 0.15, yBottom - h, slotW * 0.7, h);
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 0.5;
-      ctx.strokeRect(xOf(k) + slotW * 0.15, yBottom - h, slotW * 0.7, h);
-      yBottom -= h;
+  if (pin) {
+    // grouped bars: A gray (left), B stacked colors scaled to % (right)
+    for (let k = 0; k < 15; k++) {
+      const dim = (hoverBin >= 0 && k !== hoverBin);
+      if (pinPct[k] > 0) {
+        const h = pinPct[k] / maxPct * plotH;
+        ctx.fillStyle = '#6e7781';
+        ctx.globalAlpha = dim ? 0.35 : 1;
+        ctx.fillRect(xOf(k) + slotW * 0.12, mT + plotH - h, slotW * 0.34, h);
+        ctx.globalAlpha = 1;
+      }
+      if (curPct[k] > 0 && chTotals[k] > 0) {
+        let yBottom = mT + plotH;
+        const fullH = curPct[k] / maxPct * plotH;
+        for (let b = 0; b < 5; b++) {
+          const v = bins[k * 5 + b];
+          if (!v) continue;
+          const h = v / chTotals[k] * fullH;
+          ctx.fillStyle = BW_STACK_COLORS[b];
+          ctx.globalAlpha = dim ? 0.35 : 1;
+          ctx.fillRect(xOf(k) + slotW * 0.52, yBottom - h, slotW * 0.34, h);
+          ctx.globalAlpha = 1;
+          yBottom -= h;
+        }
+      }
+    }
+  } else {
+    // stacked bars, white edges like the reference plot
+    for (let k = 0; k < 15; k++) {
+      if (!chTotals[k]) continue;
+      let yBottom = mT + plotH;
+      for (let b = 0; b < 5; b++) {
+        const v = bins[k * 5 + b];
+        if (!v) continue;
+        const h = v / maxCnt * plotH;
+        ctx.fillStyle = BW_STACK_COLORS[b];
+        ctx.globalAlpha = (hoverBin >= 0 && k !== hoverBin) ? 0.35 : 1;
+        ctx.fillRect(xOf(k) + slotW * 0.15, yBottom - h, slotW * 0.7, h);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 0.5;
+        ctx.strokeRect(xOf(k) + slotW * 0.15, yBottom - h, slotW * 0.7, h);
+        yBottom -= h;
+      }
     }
   }
 
@@ -967,6 +1043,16 @@ function drawChanChart(cvId, capId, bins, total, samples, hoverBin) {
   ctx.fillText('Primary Scanning Ch. No.', mL + plotW / 2, H - 1);
 
   const cap = document.getElementById(capId);
+  if (pin && hoverBin >= 0 && (pinPct[hoverBin] > 0 || curPct[hoverBin] > 0)) {
+    cap.textContent = 'Ch ' + PSC[hoverBin] + ' — A: ' + pinPct[hoverBin].toFixed(1) +
+      '%  vs  B: ' + curPct[hoverBin].toFixed(1) + '%';
+    return;
+  }
+  if (pin) {
+    cap.textContent = 'A: ' + pin.total.toLocaleString() + '  vs  B: ' +
+      total.toLocaleString() + ' unique BSSIDs';
+    return;
+  }
   if (hoverBin >= 0 && chTotals[hoverBin] > 0) {
     const parts = [];
     for (let b = 0; b < 5; b++) {
@@ -984,6 +1070,32 @@ function drawChanChart(cvId, capId, bins, total, samples, hoverBin) {
     cap.textContent = 'None in view';
   }
 }
+
+// ── Region comparison: pin a snapshot of the current view's stats ────────────
+let pinned = null;
+let lastSearchLabel = '';
+
+document.getElementById('an-pin').addEventListener('click', () => {
+  const btn = document.getElementById('an-pin');
+  const lbl = document.getElementById('an-pin-label');
+  if (pinned) {
+    pinned = null;
+    btn.innerHTML = '&#x1F4CC; Pin region';
+    lbl.textContent = '';
+  } else {
+    pinned = {
+      label: lastSearchLabel || 'Pinned view',
+      lpi: Uint32Array.from(lpiChanBins), lpiTotal: lpiChanTotal,
+      sp:  Uint32Array.from(spChanBins),  spTotal:  spChanTotal,
+      rssiBw: Uint32Array.from(anRssiHist),
+      rssiCh: Uint32Array.from(anRssiChanHist),
+      time: Uint32Array.from(timeBins), timeTotal: timeTotal,
+    };
+    btn.innerHTML = '&#x2715; Unpin';
+    lbl.textContent = 'A (gray): ' + pinned.label + '  vs  B (color): current view';
+  }
+  drawAnalytics();
+});
 
 function drawTimeChart() {
   const cv = document.getElementById('an-time');
@@ -1020,18 +1132,27 @@ function drawTimeChart() {
   }
   ctx.setLineDash([]);
 
-  // bars + value labels
+  // bars + value labels (grouped with pinned region when comparing)
+  if (pinned) {
+    for (let b = first; b <= last; b++) if (pinned.time[b] > maxCnt) maxCnt = pinned.time[b];
+  }
   for (let b = first; b <= last; b++) {
     const k = b - first;
     const v = timeBins[b];
     const h = v / maxCnt * plotH;
-    const x = mL + k * slotW + slotW * 0.18;
+    if (pinned && pinned.time[b]) {
+      const ph = pinned.time[b] / maxCnt * plotH;
+      ctx.fillStyle = '#6e7781';
+      ctx.fillRect(mL + k * slotW + slotW * 0.12, mT + plotH - ph, slotW * 0.34, ph);
+    }
+    const x = pinned ? mL + k * slotW + slotW * 0.52 : mL + k * slotW + slotW * 0.18;
+    const bw2 = pinned ? slotW * 0.34 : slotW * 0.64;
     ctx.fillStyle = '#1a7f37';
-    ctx.fillRect(x, mT + plotH - h, slotW * 0.64, h);
+    ctx.fillRect(x, mT + plotH - h, bw2, h);
     if (v) {
       ctx.fillStyle = '#1f2328'; ctx.textAlign = 'center'; ctx.font = '9px Inter, sans-serif';
       ctx.fillText(v >= 10000 ? Math.round(v / 1000) + 'k' : v.toLocaleString(),
-                   x + slotW * 0.32, mT + plotH - h - 4);
+                   x + bw2 / 2, mT + plotH - h - 4);
     }
     // x label
     ctx.fillStyle = '#57606e';
@@ -1502,6 +1623,7 @@ searchInput.addEventListener('keydown', async e => {
     };
     deckInstance.setProps({initialViewState: curViewState});
     scheduleViewCount();
+    lastSearchLabel = q;
     searchInput.blur();
   } catch (err) {
     searchInput.placeholder = 'Search failed — try again';
