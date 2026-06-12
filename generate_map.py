@@ -374,12 +374,15 @@ input[type=range]{width:100%;padding:0;cursor:pointer;accent-color:var(--accent)
 #analytics-btn{display:flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:inherit;font-size:12px;font-weight:500;padding:6px 12px;border-radius:8px;cursor:pointer}
 #analytics-btn:hover{border-color:var(--accent)}
 #analytics-btn.active{background:var(--accent);color:#000;border-color:var(--accent)}
-#analytics{position:absolute;left:0;right:0;bottom:0;z-index:920;background:rgba(246,248,250,.97);border-top:1px solid var(--border);display:none;flex-direction:column;box-shadow:0 -6px 24px rgba(0,0,0,.15)}
+#analytics{position:absolute;left:0;right:0;bottom:0;z-index:920;background:rgba(246,248,250,.97);border-top:1px solid var(--border);display:none;flex-direction:column;box-shadow:0 -6px 24px rgba(0,0,0,.15);height:46%;min-height:120px;max-height:85%}
 #analytics.open{display:flex}
 .an-head{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;font-size:12px;font-weight:600;color:#1f2328;border-bottom:1px solid var(--border)}
 .an-head button{background:none;border:none;cursor:pointer;color:var(--muted);font-size:16px;line-height:1;padding:0}
 .an-head button:hover{color:#1f2328}
-.an-charts{display:flex;flex-wrap:wrap;padding:10px 8px 6px}
+.an-charts{display:flex;flex-wrap:wrap;padding:10px 8px 6px;overflow-y:auto;flex:1}
+#an-resizer{height:7px;cursor:ns-resize;background:transparent;position:relative;flex-shrink:0}
+#an-resizer::after{content:'';position:absolute;left:50%;top:2px;transform:translateX(-50%);width:48px;height:3px;border-radius:2px;background:var(--border)}
+#an-resizer:hover::after{background:var(--accent)}
 .an-chart{flex:1 1 23%;min-width:260px;padding:0 8px 8px;display:flex;flex-direction:column;align-items:center}
 .an-title{font-size:11px;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em;text-align:center}
 .an-toggle button{background:var(--bg);border:1px solid var(--border);color:var(--muted);font-family:inherit;font-size:10px;font-weight:600;padding:2px 8px;cursor:pointer}
@@ -510,6 +513,7 @@ input[type=range]{width:100%;padding:0;cursor:pointer;accent-color:var(--accent)
       <table class="dtbl" id="dtbl"></table>
     </div>
     <div id="analytics">
+      <div id="an-resizer" title="Drag to resize"></div>
       <div class="an-head">
         <span>In-View Analytics <span id="an-pin-label" style="font-weight:400;color:var(--muted);margin-left:10px"></span></span>
         <span style="display:flex;gap:10px;align-items:center">
@@ -762,6 +766,28 @@ function setAnalytics(open) {
   if (open) updateViewCount();  // aggregation is skipped while closed — regather now
 }
 anBtn.addEventListener('click', () => setAnalytics(!anPanel.classList.contains('open')));
+
+// Drag the panel's top edge to resize it
+(() => {
+  const rz = document.getElementById('an-resizer');
+  let startY = 0, startH = 0;
+  function onMove(e) {
+    const h = startH + (startY - e.clientY);
+    const wrapH = document.getElementById('map-wrap').clientHeight;
+    anPanel.style.height = Math.max(120, Math.min(wrapH * 0.85, h)) + 'px';
+  }
+  function onUp() {
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+  }
+  rz.addEventListener('pointerdown', e => {
+    startY = e.clientY;
+    startH = anPanel.clientHeight;
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    e.preventDefault();
+  });
+})();
 document.getElementById('an-close').addEventListener('click', () => setAnalytics(false));
 
 // matplotlib-like color cycle for the per-channel violins
