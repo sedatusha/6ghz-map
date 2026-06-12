@@ -1458,6 +1458,7 @@ function updateViewCount() {
   updateBreakdownBars(typeCounts);
 
   document.getElementById('top-badge').textContent = inView.toLocaleString() + ' APs in view';
+  updateHash();
   document.getElementById('showing-count').innerHTML =
     'In view: <b>' + inView.toLocaleString() + '</b> APs' +
     (breakdown ? '<br><span style="font-size:10px">' + breakdown + '</span>' : '');
@@ -1616,6 +1617,7 @@ async function init() {
     parsePointsBin(pointsBuf);
     buildColorBuf();
     populateSidebar(META);
+    const hashState = applyHashState();  // restore view + filters from a shared URL
 
     setProgress(75, 'Initialising map...');
 
@@ -1631,6 +1633,7 @@ async function init() {
 
     setProgress(90, 'Rendering...');
     refresh();
+    if (hashState.an) setAnalytics(true);
 
     document.getElementById('loader').style.display = 'none';
 
@@ -1648,6 +1651,56 @@ async function init() {
 
 // ── Box zoom (select a region to zoom) ────────────────────────────────────────
 let curViewState = {longitude: -96, latitude: 38, zoom: 3.5, pitch: 0, bearing: 0};
+
+// ── Shareable URLs: view + filters encoded in the address bar ─────────────────
+let hashTimer = null;
+function updateHash() {
+  if (hashTimer) clearTimeout(hashTimer);
+  hashTimer = setTimeout(() => {
+    const q = [];
+    q.push('lat=' + curViewState.latitude.toFixed(5));
+    q.push('lon=' + curViewState.longitude.toFixed(5));
+    q.push('z='   + curViewState.zoom.toFixed(2));
+    if (filters.ap   !== 255)  q.push('ap='   + filters.ap);
+    if (filters.env  !== 255)  q.push('env='  + filters.env);
+    if (filters.std  !== 255)  q.push('std='  + filters.std);
+    if (filters.bw   !== 0)    q.push('bw='   + filters.bw);
+    if (filters.rssi > -100)   q.push('rssi=' + filters.rssi);
+    if (anPanel.classList.contains('open')) q.push('an=1');
+    history.replaceState(null, '', '#' + q.join('&'));
+  }, 400);
+}
+
+function parseHash() {
+  const out = {};
+  for (const kv of location.hash.replace(/^#/, '').split('&')) {
+    const [k, v] = kv.split('=');
+    if (k && v !== undefined) out[k] = parseFloat(v);
+  }
+  return out;
+}
+
+function applyHashState() {
+  const h = parseHash();
+  if (h.lat !== undefined && h.lon !== undefined) {
+    curViewState = {longitude: h.lon, latitude: h.lat,
+                    zoom: h.z || 10, pitch: 0, bearing: 0};
+  }
+  if (h.ap   !== undefined) { filters.ap  = h.ap;  document.getElementById('f-ap').value  = h.ap; }
+  if (h.env  !== undefined) { filters.env = h.env; document.getElementById('f-env').value = h.env; }
+  if (h.std  !== undefined) { filters.std = h.std; document.getElementById('f-std').value = h.std; }
+  if (h.rssi !== undefined) {
+    filters.rssi = h.rssi;
+    document.getElementById('f-rssi').value = h.rssi;
+    document.getElementById('rssi-val').textContent = h.rssi <= -100 ? 'Any' : h.rssi + ' dBm';
+  }
+  if (h.bw !== undefined) {
+    filters.bw = h.bw;
+    document.querySelectorAll('#bw-chips .bw-chip').forEach(c =>
+      c.classList.toggle('active', parseInt(c.dataset.w || '0') === h.bw));
+  }
+  return h;
+}
 
 const bzBtn     = document.getElementById('boxzoom-btn');
 const bzOverlay = document.getElementById('boxzoom-overlay');
