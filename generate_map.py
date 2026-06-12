@@ -538,7 +538,9 @@ input[type=range]{width:100%;padding:0;cursor:pointer;accent-color:var(--accent)
           <div class="an-cap" id="an-sp-cap"></div>
         </div>
         <div class="an-chart">
-          <div class="an-title">Building Entry Loss &mdash; Indoor vs Outdoor</div>
+          <div class="an-title">Building Entry Loss
+            <span class="an-toggle"><button id="bel-compute">Compute</button></span>
+          </div>
           <canvas id="an-bel" width="440" height="230"></canvas>
           <div class="an-cap" id="an-bel-cap"></div>
         </div>
@@ -1080,6 +1082,34 @@ function drawChanChart(cvId, capId, bins, total, samples, hoverBin) {
 const belMap = new Map();
 let belOverflow = false;
 
+let belStale = true;
+
+function computeBel() {
+  belMap.clear(); belOverflow = false;
+  const wrap = document.getElementById('map-wrap');
+  const viewport = new deck.WebMercatorViewport({
+    width: wrap.clientWidth, height: wrap.clientHeight, ...curViewState
+  });
+  const [west, south, east, north] = viewport.getBounds();
+  for (let i = 0; i < N; i++) {
+    if (rssis[i] === -128 || (envs[i] !== 0 && envs[i] !== 1)) continue;
+    if (!passesFilters(i)) continue;
+    const la = lats[i], lo = lons[i];
+    if (la < south || la > north || lo < west || lo > east) continue;
+    if (belMap.size > 200000) { belOverflow = true; break; }
+    const ob = i * 6;
+    const bKey = (bssids[ob] * 256 + bssids[ob+1]) * 4294967296 +
+                 bssids[ob+2] * 16777216 + bssids[ob+3] * 65536 +
+                 bssids[ob+4] * 256 + bssids[ob+5];
+    let rec = belMap.get(bKey);
+    if (!rec) { rec = [-128, -128]; belMap.set(bKey, rec); }
+    const side = envs[i];  // 0 = indoor, 1 = outdoor
+    if (rssis[i] > rec[side]) rec[side] = rssis[i];
+  }
+  belStale = false;
+  drawBelChart();
+}
+
 function drawBelChart() {
   const cv = document.getElementById('an-bel');
   const ctx = cv.getContext('2d');
@@ -1089,8 +1119,14 @@ function drawBelChart() {
   ctx.clearRect(0, 0, W, H);
   const cap = document.getElementById('an-bel-cap');
 
+  if (belStale) {
+    ctx.fillStyle = '#57606e'; ctx.font = '11px Inter, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('Zoom to a building, then press Compute', W / 2, H / 2);
+    cap.textContent = '';
+    return;
+  }
   if (belOverflow) {
-    cap.textContent = 'Zoom in to a building or campus to compute entry loss';
+    cap.textContent = 'Too many APs in view — zoom in to a building or campus first';
     return;
   }
 
@@ -1156,6 +1192,8 @@ function drawBelChart() {
   cap.textContent = deltas.length.toLocaleString() +
     ' BSSIDs seen both indoor & outdoor — median entry loss ' + median + ' dB';
 }
+
+document.getElementById('bel-compute').addEventListener('click', computeBel);
 
 // ── Region comparison: pin a snapshot of the current view's stats ────────────
 let pinned = null;
@@ -1260,7 +1298,7 @@ function drawAnalytics() {
   drawViolin();
   drawChanChart('an-lpi', 'an-lpi-cap', lpiChanBins, lpiChanTotal, lpiSamples, anLpiHover);
   drawChanChart('an-sp',  'an-sp-cap',  spChanBins,  spChanTotal,  spSamples,  anSpHover);
-  drawBelChart();
+  belStale = true; drawBelChart();
   drawTimeChart();
 }
 
@@ -1325,6 +1363,7 @@ function updateViewCount() {
   const [west, south, east, north] = viewport.getBounds();
 
   let inView = 0;
+  const anOpen = anPanel.classList.contains('open');
   const typeCounts = new Uint32Array(AP_CATS.length);
   lpiChanBins.fill(0); lpiChanTotal = 0; lpiSamples = 0;
   spChanBins.fill(0);  spChanTotal  = 0; spSamples  = 0;
@@ -1333,7 +1372,6 @@ function updateViewCount() {
   timeBins.fill(0); timeTotal = 0;
   const seenBssids = new Set();  // dedup: each BSSID counted once per view
   const timeSeen   = new Set();  // dedup for the growth chart (all AP types)
-  belMap.clear(); belOverflow = false;  // entry loss: bssid -> packed best in/out RSSI
   for (let i = 0; i < N; i++) {
     if (!passesFilters(i)) continue;
     const la = lats[i], lo = lons[i];
@@ -1341,6 +1379,8 @@ function updateViewCount() {
     inView++;
     const t = apTypes[i];
     typeCounts[t]++;
+
+    if (!anOpen) continue;  // chart aggregation only needed when the panel is open
 
     // RSSI histograms (violin plots): one-dB bins, -100..-30
     const wEnc = widths[i];
@@ -1366,21 +1406,6 @@ function updateViewCount() {
         timeSeen.add(tKey);
         timeBins[yearBucket(dateDays[i])]++;
         timeTotal++;
-      }
-    }
-
-    // Entry loss: track best indoor / outdoor RSSI per BSSID (capped for perf)
-    if (bssids && rssis[i] !== -128 && (envs[i] === 0 || envs[i] === 1) && !belOverflow) {
-      if (belMap.size > 200000) { belOverflow = true; }
-      else {
-        const ob = i * 6;
-        const bKey = (bssids[ob] * 256 + bssids[ob+1]) * 4294967296 +
-                     bssids[ob+2] * 16777216 + bssids[ob+3] * 65536 +
-                     bssids[ob+4] * 256 + bssids[ob+5];
-        let rec = belMap.get(bKey);
-        if (!rec) { rec = [-128, -128]; belMap.set(bKey, rec); }
-        const side = envs[i];  // 0 = indoor, 1 = outdoor
-        if (rssis[i] > rec[side]) rec[side] = rssis[i];
       }
     }
 
