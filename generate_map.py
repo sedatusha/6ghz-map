@@ -379,8 +379,8 @@ input[type=range]{width:100%;padding:0;cursor:pointer;accent-color:var(--accent)
 .an-head{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;font-size:12px;font-weight:600;color:#1f2328;border-bottom:1px solid var(--border)}
 .an-head button{background:none;border:none;cursor:pointer;color:var(--muted);font-size:16px;line-height:1;padding:0}
 .an-head button:hover{color:#1f2328}
-.an-charts{display:flex;padding:10px 8px 6px}
-.an-chart{flex:1;min-width:0;padding:0 8px;display:flex;flex-direction:column;align-items:center}
+.an-charts{display:flex;flex-wrap:wrap;padding:10px 8px 6px}
+.an-chart{flex:1 1 23%;min-width:260px;padding:0 8px 8px;display:flex;flex-direction:column;align-items:center}
 .an-title{font-size:11px;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em;text-align:center}
 .an-toggle button{background:var(--bg);border:1px solid var(--border);color:var(--muted);font-family:inherit;font-size:10px;font-weight:600;padding:2px 8px;cursor:pointer}
 .an-toggle button:first-child{border-radius:5px 0 0 5px}
@@ -536,6 +536,11 @@ input[type=range]{width:100%;padding:0;cursor:pointer;accent-color:var(--accent)
           <div class="an-title">Unique BSSIDs per Channel &mdash; SP</div>
           <canvas id="an-sp" width="440" height="230"></canvas>
           <div class="an-cap" id="an-sp-cap"></div>
+        </div>
+        <div class="an-chart">
+          <div class="an-title">Building Entry Loss &mdash; Indoor vs Outdoor</div>
+          <canvas id="an-bel" width="440" height="230"></canvas>
+          <div class="an-cap" id="an-bel-cap"></div>
         </div>
         <div class="an-chart">
           <div class="an-title">6 GHz Growth &mdash; per Year</div>
@@ -1071,6 +1076,87 @@ function drawChanChart(cvId, capId, bins, total, samples, hoverBin) {
   }
 }
 
+// ── Building entry loss: distribution of (best indoor − best outdoor) RSSI ───
+const belMap = new Map();
+let belOverflow = false;
+
+function drawBelChart() {
+  const cv = document.getElementById('an-bel');
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  const mL = 34, mB = 24, mT = 10;
+  const plotW = W - mL - 6, plotH = H - mT - mB;
+  ctx.clearRect(0, 0, W, H);
+  const cap = document.getElementById('an-bel-cap');
+
+  if (belOverflow) {
+    cap.textContent = 'Zoom in to a building or campus to compute entry loss';
+    return;
+  }
+
+  // histogram of delta = bestIndoor - bestOutdoor, range -20..50 dB
+  const LO = -20, HI = 50, NB = HI - LO;
+  const hist = new Uint32Array(NB);
+  const deltas = [];
+  belMap.forEach(rec => {
+    if (rec[0] === -128 || rec[1] === -128) return;  // need both sides
+    const d = rec[0] - rec[1];
+    deltas.push(d);
+    const bin = Math.max(0, Math.min(NB - 1, d - LO));
+    hist[bin]++;
+  });
+
+  if (!deltas.length) {
+    cap.textContent = !bssids ? 'Loading AP details...'
+      : 'No BSSID observed both indoor and outdoor in this view';
+    return;
+  }
+
+  deltas.sort((a, b) => a - b);
+  const median = deltas[Math.floor(deltas.length / 2)];
+  const maxCnt = Math.max(1, ...hist);
+  const barW = plotW / NB;
+
+  // grid
+  ctx.strokeStyle = '#d0d7de'; ctx.setLineDash([3, 3]);
+  ctx.fillStyle = '#57606e'; ctx.font = '9px Inter, sans-serif'; ctx.textAlign = 'right';
+  for (let g = 0; g <= 4; g++) {
+    const y = mT + plotH - plotH * g / 4;
+    ctx.beginPath(); ctx.moveTo(mL, y); ctx.lineTo(W - 6, y); ctx.stroke();
+    ctx.fillText(Math.round(maxCnt * g / 4), mL - 3, y + 3);
+  }
+  ctx.setLineDash([]);
+
+  // bars: negative deltas gray (outdoor stronger), positive teal (entry loss)
+  for (let j = 0; j < NB; j++) {
+    if (!hist[j]) continue;
+    const h = hist[j] / maxCnt * plotH;
+    ctx.fillStyle = (j + LO) < 0 ? '#9ba3ab' : '#1b7c83';
+    ctx.fillRect(mL + j * barW + 0.5, mT + plotH - h, barW - 1, h);
+  }
+
+  // zero + median lines
+  const xZero = mL + (0 - LO) * barW;
+  ctx.strokeStyle = '#57606e'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(xZero, mT); ctx.lineTo(xZero, mT + plotH); ctx.stroke();
+  const xMed = mL + (median - LO + 0.5) * barW;
+  ctx.strokeStyle = '#cf222e'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]);
+  ctx.beginPath(); ctx.moveTo(xMed, mT); ctx.lineTo(xMed, mT + plotH); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#cf222e'; ctx.textAlign = 'center'; ctx.font = 'bold 9px Inter, sans-serif';
+  ctx.fillText('median ' + median + ' dB', Math.min(W - 40, Math.max(mL + 35, xMed)), mT + 8);
+
+  // x labels
+  ctx.fillStyle = '#57606e'; ctx.font = '9px Inter, sans-serif';
+  for (const v of [-20, -10, 0, 10, 20, 30, 40, 50]) {
+    ctx.fillText(v, mL + (v - LO) * barW, H - 12);
+  }
+  ctx.fillText('Best indoor RSSI − best outdoor RSSI (dB)', mL + plotW / 2, H - 1);
+
+  cap.textContent = deltas.length.toLocaleString() +
+    ' BSSIDs seen both indoor & outdoor — median entry loss ' + median + ' dB';
+}
+
 // ── Region comparison: pin a snapshot of the current view's stats ────────────
 let pinned = null;
 let lastSearchLabel = '';
@@ -1174,6 +1260,7 @@ function drawAnalytics() {
   drawViolin();
   drawChanChart('an-lpi', 'an-lpi-cap', lpiChanBins, lpiChanTotal, lpiSamples, anLpiHover);
   drawChanChart('an-sp',  'an-sp-cap',  spChanBins,  spChanTotal,  spSamples,  anSpHover);
+  drawBelChart();
   drawTimeChart();
 }
 
@@ -1246,6 +1333,7 @@ function updateViewCount() {
   timeBins.fill(0); timeTotal = 0;
   const seenBssids = new Set();  // dedup: each BSSID counted once per view
   const timeSeen   = new Set();  // dedup for the growth chart (all AP types)
+  belMap.clear(); belOverflow = false;  // entry loss: bssid -> packed best in/out RSSI
   for (let i = 0; i < N; i++) {
     if (!passesFilters(i)) continue;
     const la = lats[i], lo = lons[i];
@@ -1278,6 +1366,21 @@ function updateViewCount() {
         timeSeen.add(tKey);
         timeBins[yearBucket(dateDays[i])]++;
         timeTotal++;
+      }
+    }
+
+    // Entry loss: track best indoor / outdoor RSSI per BSSID (capped for perf)
+    if (bssids && rssis[i] !== -128 && (envs[i] === 0 || envs[i] === 1) && !belOverflow) {
+      if (belMap.size > 200000) { belOverflow = true; }
+      else {
+        const ob = i * 6;
+        const bKey = (bssids[ob] * 256 + bssids[ob+1]) * 4294967296 +
+                     bssids[ob+2] * 16777216 + bssids[ob+3] * 65536 +
+                     bssids[ob+4] * 256 + bssids[ob+5];
+        let rec = belMap.get(bKey);
+        if (!rec) { rec = [-128, -128]; belMap.set(bKey, rec); }
+        const side = envs[i];  // 0 = indoor, 1 = outdoor
+        if (rssis[i] > rec[side]) rec[side] = rssis[i];
       }
     }
 
