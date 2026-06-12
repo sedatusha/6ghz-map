@@ -1080,12 +1080,11 @@ function drawChanChart(cvId, capId, bins, total, samples, hoverBin) {
 
 // ── Building entry loss: distribution of (best indoor − best outdoor) RSSI ───
 const belMap = new Map();
-let belOverflow = false;
 
 let belStale = true;
 
 function computeBel() {
-  belMap.clear(); belOverflow = false;
+  belMap.clear();
   const wrap = document.getElementById('map-wrap');
   const viewport = new deck.WebMercatorViewport({
     width: wrap.clientWidth, height: wrap.clientHeight, ...curViewState
@@ -1096,15 +1095,18 @@ function computeBel() {
     if (!passesFilters(i)) continue;
     const la = lats[i], lo = lons[i];
     if (la < south || la > north || lo < west || lo > east) continue;
-    if (belMap.size > 200000) { belOverflow = true; break; }
     const ob = i * 6;
     const bKey = (bssids[ob] * 256 + bssids[ob+1]) * 4294967296 +
                  bssids[ob+2] * 16777216 + bssids[ob+3] * 65536 +
                  bssids[ob+4] * 256 + bssids[ob+5];
-    let rec = belMap.get(bKey);
-    if (!rec) { rec = [-128, -128]; belMap.set(bKey, rec); }
-    const side = envs[i];  // 0 = indoor, 1 = outdoor
-    if (rssis[i] > rec[side]) rec[side] = rssis[i];
+    // value packs best indoor (high byte) and best outdoor (low byte); 0 = not seen
+    let v = belMap.get(bKey);
+    if (v === undefined) v = 0;
+    let inB  = v >> 8, outB = v & 255;
+    const r = rssis[i] + 129;  // 1..256 so 0 means "not seen"
+    if (envs[i] === 0) { if (r > inB)  inB  = r; }
+    else               { if (r > outB) outB = r; }
+    belMap.set(bKey, (inB << 8) | outB);
   }
   belStale = false;
   drawBelChart();
@@ -1125,18 +1127,15 @@ function drawBelChart() {
     cap.textContent = '';
     return;
   }
-  if (belOverflow) {
-    cap.textContent = 'Too many APs in view — zoom in to a building or campus first';
-    return;
-  }
 
   // histogram of delta = bestIndoor - bestOutdoor, range -20..50 dB
   const LO = -20, HI = 50, NB = HI - LO;
   const hist = new Uint32Array(NB);
   const deltas = [];
-  belMap.forEach(rec => {
-    if (rec[0] === -128 || rec[1] === -128) return;  // need both sides
-    const d = rec[0] - rec[1];
+  belMap.forEach(v => {
+    const inB = v >> 8, outB = v & 255;
+    if (!inB || !outB) return;  // need both indoor and outdoor readings
+    const d = inB - outB;
     deltas.push(d);
     const bin = Math.max(0, Math.min(NB - 1, d - LO));
     hist[bin]++;
