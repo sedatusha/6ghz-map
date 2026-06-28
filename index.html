@@ -937,13 +937,85 @@ document.getElementById('bel-compute').addEventListener('click', computeBel);
 let pinned = null;
 let lastSearchLabel = '';
 
-document.getElementById('an-pin').addEventListener('click', () => {
+let pinnedDef = null;   // {bounds:[w,s,e,n], f:{...filters}, label} — for shareable URLs
+let pendingPin = null;  // pin definition parsed from a shared URL, applied once data is ready
+
+function setPinUI() {
   const btn = document.getElementById('an-pin');
   const lbl = document.getElementById('an-pin-label');
   if (pinned) {
-    pinned = null;
+    btn.innerHTML = '&#x2715; Unpin';
+    lbl.textContent = 'A (gray): ' + pinned.label + '  vs  B (color): current view';
+  } else {
     btn.innerHTML = '&#x1F4CC; Pin region';
     lbl.textContent = '';
+  }
+}
+
+// Aggregate chart stats for an arbitrary bounds + filter set (used by URL-restored pins)
+function aggregateRegion(bounds, f, label) {
+  const [west, south, east, north] = bounds;
+  const lpi = new Uint32Array(15 * 5), sp = new Uint32Array(15 * 5);
+  let lpiTotal = 0, spTotal = 0, timeTotalL = 0;
+  const rssiBw = new Uint32Array(5 * RSSI_BINS), rssiCh = new Uint32Array(15 * RSSI_BINS);
+  const time = new Uint32Array(YEAR_STARTS.length);
+  const seen = new Set(), tSeen = new Set();
+
+  for (let i = 0; i < N; i++) {
+    if (f.ap  !== 255 && apTypes[i] !== f.ap)  continue;
+    if (f.env !== 255 && envs[i]    !== f.env) continue;
+    if (f.std !== 255 && stdIdxs[i] !== f.std) continue;
+    if (f.bw  !== 0   && widths[i]  !== f.bw)  continue;
+    if (f.rssi > -100 && (rssis[i] === -128 || rssis[i] < f.rssi)) continue;
+    const la = lats[i], lo = lons[i];
+    if (la < south || la > north || lo < west || lo > east) continue;
+
+    const t = apTypes[i];
+    const wEnc = widths[i];
+    const rBin = rssis[i] === -128 ? -1 : Math.max(0, Math.min(RSSI_BINS - 1, rssis[i] + 100));
+    if (rBin >= 0 && wEnc >= 1 && wEnc <= 5) rssiBw[(wEnc - 1) * RSSI_BINS + rBin]++;
+
+    const ch = freqIdxs[i] - 5;
+    const isPsc = ch >= 5 && (ch - 5) % 16 === 0 && (ch - 5) / 16 < 15;
+    if (isPsc && rBin >= 0) rssiCh[((ch - 5) / 16) * RSSI_BINS + rBin]++;
+
+    if (bssids && dateDays) {
+      const o6 = i * 6;
+      const tKey = (bssids[o6] * 256 + bssids[o6+1]) * 4294967296 +
+                   bssids[o6+2] * 16777216 + bssids[o6+3] * 65536 +
+                   bssids[o6+4] * 256 + bssids[o6+5];
+      if (!tSeen.has(tKey)) { tSeen.add(tKey); time[yearBucket(dateDays[i])]++; timeTotalL++; }
+    }
+
+    if ((t === IDX_LPI || t === IDX_SP) && bssids && isPsc && wEnc >= 1 && wEnc <= 5) {
+      const bin = (ch - 5) / 16;
+      const o = i * 6;
+      const key = (bssids[o] * 256 + bssids[o+1]) * 4294967296 +
+                  bssids[o+2] * 16777216 + bssids[o+3] * 65536 +
+                  bssids[o+4] * 256 + bssids[o+5];
+      if (!seen.has(key)) {
+        seen.add(key);
+        if (t === IDX_LPI) { lpi[bin * 5 + wEnc - 1]++; lpiTotal++; }
+        else               { sp[bin * 5 + wEnc - 1]++;  spTotal++;  }
+      }
+    }
+  }
+  return {label, lpi, lpiTotal, sp, spTotal, rssiBw, rssiCh, time, timeTotal: timeTotalL};
+}
+
+function applyPendingPin() {
+  if (!pendingPin || !bssids) return;
+  pinned = aggregateRegion(pendingPin.bounds, pendingPin.f, pendingPin.label);
+  pinnedDef = pendingPin;
+  pendingPin = null;
+  setPinUI();
+  drawAnalytics();
+}
+
+document.getElementById('an-pin').addEventListener('click', () => {
+  if (pinned) {
+    pinned = null;
+    pinnedDef = null;
   } else {
     pinned = {
       label: lastSearchLabel || 'Pinned view',
@@ -953,9 +1025,14 @@ document.getElementById('an-pin').addEventListener('click', () => {
       rssiCh: Uint32Array.from(anRssiChanHist),
       time: Uint32Array.from(timeBins), timeTotal: timeTotal,
     };
-    btn.innerHTML = '&#x2715; Unpin';
-    lbl.textContent = 'A (gray): ' + pinned.label + '  vs  B (color): current view';
+    const wrap = document.getElementById('map-wrap');
+    const vp = new deck.WebMercatorViewport({
+      width: wrap.clientWidth, height: wrap.clientHeight, ...curViewState
+    });
+    pinnedDef = {bounds: vp.getBounds(), f: {...filters}, label: pinned.label};
   }
+  setPinUI();
+  updateHash();
   drawAnalytics();
 });
 
