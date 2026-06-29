@@ -92,12 +92,12 @@ input[type=range]{width:100%;padding:0;cursor:pointer;accent-color:var(--accent)
 .an-head{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;font-size:12px;font-weight:600;color:#1f2328;border-bottom:1px solid var(--border)}
 .an-head button{background:none;border:none;cursor:pointer;color:var(--muted);font-size:16px;line-height:1;padding:0}
 .an-head button:hover{color:#1f2328}
-.an-charts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:10px 8px 6px;overflow-y:auto;flex:1}
+.an-charts{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;padding:10px 8px 6px;overflow-y:auto;flex:1}
 #an-resizer{height:7px;cursor:ns-resize;background:transparent;position:relative;flex-shrink:0}
 #an-resizer::after{content:'';position:absolute;left:50%;top:2px;transform:translateX(-50%);width:48px;height:3px;border-radius:2px;background:var(--border)}
 #an-resizer:hover::after{background:var(--accent)}
 .an-chart{padding:0 8px 8px;display:flex;flex-direction:column;align-items:center}
-.an-chart.wide{grid-column:span 2}
+.an-chart.full{grid-column:span 2}
 .an-title{font-size:11px;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em;text-align:center}
 .an-toggle button{background:var(--bg);border:1px solid var(--border);color:var(--muted);font-family:inherit;font-size:10px;font-weight:600;padding:2px 8px;cursor:pointer}
 .an-toggle button:first-child{border-radius:5px 0 0 5px}
@@ -236,12 +236,17 @@ input[type=range]{width:100%;padding:0;cursor:pointer;accent-color:var(--accent)
         </span>
       </div>
       <div class="an-charts">
-        <!-- Row 1: LPI (wide) + RSSI violin -->
-        <div class="an-chart wide">
-          <div class="an-title">Unique BSSIDs per Channel &mdash; LPI</div>
-          <canvas id="an-lpi" width="880" height="230"></canvas>
-          <div class="an-cap" id="an-lpi-cap"></div>
+        <!-- Row 1: LPI/SP combined, full width -->
+        <div class="an-chart full">
+          <div class="an-title">Unique BSSIDs per Channel &mdash;
+            <span class="an-toggle">
+              <button id="chan-lpi" class="active">LPI</button><button id="chan-sp">SP</button>
+            </span>
+          </div>
+          <canvas id="an-chan" width="880" height="230"></canvas>
+          <div class="an-cap" id="an-chan-cap"></div>
         </div>
+        <!-- Row 2: RSSI violin + BW% -->
         <div class="an-chart">
           <div class="an-title">RSSI Distribution &mdash;
             <span class="an-toggle">
@@ -250,12 +255,6 @@ input[type=range]{width:100%;padding:0;cursor:pointer;accent-color:var(--accent)
           </div>
           <canvas id="an-violin" width="440" height="230"></canvas>
           <div class="an-cap" id="an-violin-cap"></div>
-        </div>
-        <!-- Row 2: SP (wide) + BW% -->
-        <div class="an-chart wide">
-          <div class="an-title">Unique BSSIDs per Channel &mdash; SP</div>
-          <canvas id="an-sp" width="880" height="230"></canvas>
-          <div class="an-cap" id="an-sp-cap"></div>
         </div>
         <div class="an-chart">
           <div class="an-title">Bandwidth Distribution &mdash; % of Unique BSSIDs</div>
@@ -701,8 +700,8 @@ function drawChanChart(cvId, capId, bins, total, samples, hoverBin) {
   // y grid (dashed) + tick labels (drawn below, after scale is known)
 
   // pinned-region comparison: per-channel totals as % of each region's BSSIDs
-  const pin = pinned ? (cvId === 'an-lpi' ? {bins: pinned.lpi, total: pinned.lpiTotal}
-                                          : {bins: pinned.sp,  total: pinned.spTotal}) : null;
+  const pin = pinned ? (chanMode === 'lpi' ? {bins: pinned.lpi, total: pinned.lpiTotal}
+                                           : {bins: pinned.sp,  total: pinned.spTotal}) : null;
   let pinPct = null, curPct = null, maxPct = 0;
   if (pin) {
     pinPct = new Array(N_CH).fill(0); curPct = new Array(N_CH).fill(0);
@@ -1205,13 +1204,15 @@ function drawTimeChart() {
   cap.textContent = 'Unique BSSIDs observed per year — total ' + timeTotal.toLocaleString();
 }
 
-let anLpiHover = -1, anSpHover = -1;
+let anChanHover = -1, chanMode = 'lpi';
 
 function drawAnalytics() {
   if (!anPanel.classList.contains('open')) return;
   drawViolin();
-  drawChanChart('an-lpi', 'an-lpi-cap', lpiChanBins, lpiChanTotal, lpiSamples, anLpiHover);
-  drawChanChart('an-sp',  'an-sp-cap',  spChanBins,  spChanTotal,  spSamples,  anSpHover);
+  const [chanBins, chanTotal, chanSamples] = chanMode === 'lpi'
+    ? [lpiChanBins, lpiChanTotal, lpiSamples]
+    : [spChanBins,  spChanTotal,  spSamples];
+  drawChanChart('an-chan', 'an-chan-cap', chanBins, chanTotal, chanSamples, anChanHover);
   drawBwPctChart();
   belStale = true; drawBelChart();
   drawTimeChart();
@@ -1228,8 +1229,19 @@ function chanHover(cvId, setter) {
   });
   cv.addEventListener('mouseleave', () => { setter(-1); drawAnalytics(); });
 }
-chanHover('an-lpi', v => anLpiHover = v);
-chanHover('an-sp',  v => anSpHover  = v);
+chanHover('an-chan', v => { anChanHover = v; drawAnalytics(); });
+document.getElementById('chan-lpi').addEventListener('click', () => {
+  chanMode = 'lpi';
+  document.getElementById('chan-lpi').classList.add('active');
+  document.getElementById('chan-sp').classList.remove('active');
+  drawAnalytics();
+});
+document.getElementById('chan-sp').addEventListener('click', () => {
+  chanMode = 'sp';
+  document.getElementById('chan-sp').classList.add('active');
+  document.getElementById('chan-lpi').classList.remove('active');
+  drawAnalytics();
+});
 
 // AP-type breakdown: in-view count (live) alongside full-dataset total
 function updateBreakdownBars(typeCounts) {
