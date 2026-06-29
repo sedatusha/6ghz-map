@@ -255,6 +255,11 @@ input[type=range]{width:100%;padding:0;cursor:pointer;accent-color:var(--accent)
           <div class="an-cap" id="an-sp-cap"></div>
         </div>
         <div class="an-chart">
+          <div class="an-title">Bandwidth Distribution &mdash; % of Unique BSSIDs</div>
+          <canvas id="an-bw-pct" width="440" height="230"></canvas>
+          <div class="an-cap" id="an-bw-pct-cap"></div>
+        </div>
+        <div class="an-chart">
           <div class="an-title">Building Entry Loss
             <span class="an-toggle"><button id="bel-compute">Compute</button></span>
           </div>
@@ -441,12 +446,19 @@ function getFilteredWithIndex() {
 // ── Analytics panel (RSSI violin + per-channel unique BSSID charts) ──────────
 // 6 GHz preferred scanning channels (PSC): ch 5, 21, 37 ... 229 (step 16 = 80 MHz)
 const PSC = [5,21,37,53,69,85,101,117,133,149,165,181,197,213,229];
-// Unique BSSIDs per PSC, stacked by bandwidth: bins[psc*5 + bwClass] (bw 20/40/80/160/320)
-const lpiChanBins = new Uint32Array(15 * 5);
+// All valid 6 GHz 20 MHz primary channels: 1, 5, 9, ... 233 (step 4) = 59 slots
+const N_CH = 59;
+const ALL_CH = Array.from({length: N_CH}, (_, i) => 1 + i * 4);
+const PSC_BINS = new Set([1,5,9,13,17,21,25,29,33,37,41,45,49,53,57]); // bin indices of PSC channels
+// Unique BSSIDs per channel, stacked by bandwidth: bins[ch_bin*5 + bwClass] (bw 20/40/80/160/320)
+const lpiChanBins = new Uint32Array(N_CH * 5);
 let lpiChanTotal = 0, lpiSamples = 0;
 const BW_STACK_COLORS = ['#4e79a7', '#f28e2b', '#59a14f', '#e15759', '#b07aa1'];
-const spChanBins = new Uint32Array(15 * 5);
+const spChanBins = new Uint32Array(N_CH * 5);
 let spChanTotal = 0, spSamples = 0;
+// Unique BSSIDs per bandwidth across all channels (for BW % chart)
+const bwUniqBins = new Uint32Array(5);
+let bwUniqTotal = 0;
 const RSSI_BINS = 71;                                  // one-dB bins, -100..-30
 const anRssiHist     = new Uint32Array(5 * RSSI_BINS);  // by bandwidth class
 const anRssiChanHist = new Uint32Array(15 * RSSI_BINS); // by preferred scanning channel
@@ -655,10 +667,11 @@ document.getElementById('vio-ch').addEventListener('click', () => {
   drawAnalytics();
 });
 
-// U-NII sub-band separators in PSC bin units (team convention):
-//   U-NII-5: ch 5..85 | U-NII-6/7 line mid-ch-117 | ch 181 under U-NII-8
-const UNII_LINES  = [5.5, 7, 10.5];
-const UNII_LABELS = [['U-NII-5', 2.5], ['U-NII-6', 6], ['U-NII-7', 9], ['U-NII-8', 13]];
+// U-NII sub-band separators in all-channel bin units (bin = (ch-1)/4):
+//   U-NII-5: ch 1..93  = bins 0..23 | U-NII-6: ch 97..113 = bins 24..28
+//   U-NII-7: ch 117..177 = bins 29..44 | U-NII-8: ch 181..233 = bins 45..58
+const UNII_LINES  = [23.5, 28.5, 44.5];
+const UNII_LABELS = [['U-NII-5', 11.5], ['U-NII-6', 26], ['U-NII-7', 36.5], ['U-NII-8', 51.5]];
 
 function drawChanChart(cvId, capId, bins, total, samples, hoverBin) {
   const cv = document.getElementById(cvId);
@@ -669,16 +682,16 @@ function drawChanChart(cvId, capId, bins, total, samples, hoverBin) {
   ctx.clearRect(0, 0, W, H);
 
   // per-channel totals (sum of the 5 bandwidth stacks)
-  const chTotals = new Array(15);
+  const chTotals = new Array(N_CH);
   let maxCnt = 1;
-  for (let k = 0; k < 15; k++) {
+  for (let k = 0; k < N_CH; k++) {
     let s = 0;
     for (let b = 0; b < 5; b++) s += bins[k * 5 + b];
     chTotals[k] = s;
     if (s > maxCnt) maxCnt = s;
   }
 
-  const slotW = plotW / 15;
+  const slotW = plotW / N_CH;
   const xOf = k => mL + k * slotW;
 
   // y grid (dashed) + tick labels (drawn below, after scale is known)
@@ -688,8 +701,8 @@ function drawChanChart(cvId, capId, bins, total, samples, hoverBin) {
                                           : {bins: pinned.sp,  total: pinned.spTotal}) : null;
   let pinPct = null, curPct = null, maxPct = 0;
   if (pin) {
-    pinPct = new Array(15).fill(0); curPct = new Array(15).fill(0);
-    for (let k = 0; k < 15; k++) {
+    pinPct = new Array(N_CH).fill(0); curPct = new Array(N_CH).fill(0);
+    for (let k = 0; k < N_CH; k++) {
       let ps = 0; for (let b = 0; b < 5; b++) ps += pin.bins[k * 5 + b];
       pinPct[k] = pin.total ? ps / pin.total * 100 : 0;
       curPct[k] = total ? chTotals[k] / total * 100 : 0;
@@ -713,7 +726,7 @@ function drawChanChart(cvId, capId, bins, total, samples, hoverBin) {
 
   if (pin) {
     // grouped bars: A gray (left), B stacked colors scaled to % (right)
-    for (let k = 0; k < 15; k++) {
+    for (let k = 0; k < N_CH; k++) {
       const dim = (hoverBin >= 0 && k !== hoverBin);
       if (pinPct[k] > 0) {
         const h = pinPct[k] / maxPct * plotH;
@@ -739,7 +752,7 @@ function drawChanChart(cvId, capId, bins, total, samples, hoverBin) {
     }
   } else {
     // stacked bars, white edges like the reference plot
-    for (let k = 0; k < 15; k++) {
+    for (let k = 0; k < N_CH; k++) {
       if (!chTotals[k]) continue;
       let yBottom = mT + plotH;
       for (let b = 0; b < 5; b++) {
@@ -779,18 +792,26 @@ function drawChanChart(cvId, capId, bins, total, samples, hoverBin) {
     ly += 11;
   }
 
-  // baseline + channel number labels
+  // baseline + channel number labels (PSC in bold, others as small ticks)
   ctx.strokeStyle = '#d0d7de';
   ctx.beginPath(); ctx.moveTo(mL, mT + plotH + 0.5); ctx.lineTo(W - 4, mT + plotH + 0.5); ctx.stroke();
-  ctx.fillStyle = '#57606e'; ctx.textAlign = 'center'; ctx.font = '9px Inter, sans-serif';
-  for (let k = 0; k < 15; k++) {
-    ctx.fillText(PSC[k], xOf(k) + slotW / 2, H - 10);
+  ctx.textAlign = 'center';
+  for (let k = 0; k < N_CH; k++) {
+    const cx = xOf(k) + slotW / 2;
+    if (PSC_BINS.has(k)) {
+      ctx.fillStyle = '#1f2328'; ctx.font = 'bold 8px Inter, sans-serif';
+      ctx.fillText(ALL_CH[k], cx, H - 10);
+    } else {
+      ctx.strokeStyle = '#adb8c2'; ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.moveTo(cx, mT + plotH + 1); ctx.lineTo(cx, mT + plotH + 4); ctx.stroke();
+    }
   }
-  ctx.fillText('Primary Scanning Ch. No.', mL + plotW / 2, H - 1);
+  ctx.fillStyle = '#57606e'; ctx.font = '9px Inter, sans-serif';
+  ctx.fillText('Primary Ch. No. (PSC bold)', mL + plotW / 2, H - 1);
 
   const cap = document.getElementById(capId);
   if (pin && hoverBin >= 0 && (pinPct[hoverBin] > 0 || curPct[hoverBin] > 0)) {
-    cap.textContent = 'Ch ' + PSC[hoverBin] + ' — A: ' + pinPct[hoverBin].toFixed(1) +
+    cap.textContent = 'Ch ' + ALL_CH[hoverBin] + ' — A: ' + pinPct[hoverBin].toFixed(1) +
       '%  vs  B: ' + curPct[hoverBin].toFixed(1) + '%';
     return;
   }
@@ -805,7 +826,7 @@ function drawChanChart(cvId, capId, bins, total, samples, hoverBin) {
       const v = bins[hoverBin * 5 + b];
       if (v) parts.push(BW_NAMES[b] + ': ' + v.toLocaleString());
     }
-    cap.textContent = 'Ch ' + PSC[hoverBin] + ' — ' + chTotals[hoverBin].toLocaleString() +
+    cap.textContent = 'Ch ' + ALL_CH[hoverBin] + ' — ' + chTotals[hoverBin].toLocaleString() +
       ' BSSIDs (' + parts.join(', ') + ')';
   } else if (total > 0) {
     cap.textContent = 'Samples: ' + samples.toLocaleString() +
@@ -815,6 +836,79 @@ function drawChanChart(cvId, capId, bins, total, samples, hoverBin) {
   } else {
     cap.textContent = 'None in view';
   }
+}
+
+// ── Bandwidth % chart ─────────────────────────────────────────────────────────
+function drawBwPctChart() {
+  const cv = document.getElementById('an-bw-pct');
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  const mL = 52, mR = 16, mT = 14, mB = 14;
+  const plotW = W - mL - mR, plotH = H - mT - mB;
+  ctx.clearRect(0, 0, W, H);
+
+  const pinB = pinned ? pinned.bwUniq   : null;
+  const pinT = pinned ? pinned.bwUniqTotal : 0;
+  const curT = bwUniqTotal;
+  const hasData = curT > 0 || (pinB && pinT > 0);
+  if (!hasData) {
+    ctx.fillStyle = '#57606e'; ctx.font = '11px Inter, sans-serif';
+    ctx.textAlign = 'center'; ctx.fillText('No data in view', W / 2, H / 2);
+    return;
+  }
+
+  const rowH = plotH / 5;
+  const cap = document.getElementById('an-bw-pct-cap');
+  let capParts = [];
+
+  for (let b = 0; b < 5; b++) {
+    const y = mT + b * rowH;
+    const curPct = curT ? bwUniqBins[b] / curT * 100 : 0;
+
+    // current bar
+    ctx.fillStyle = BW_STACK_COLORS[b];
+    const barH = rowH * 0.35;
+    ctx.fillRect(mL, y + (pinB ? 1 : rowH * 0.2), plotW * curPct / 100, barH);
+
+    // pinned bar (gray, above current)
+    if (pinB) {
+      const pinPct = pinT ? pinB[b] / pinT * 100 : 0;
+      ctx.fillStyle = '#6e7781';
+      ctx.fillRect(mL, y + barH + 2, plotW * pinPct / 100, barH);
+    }
+
+    // label
+    ctx.fillStyle = '#1f2328'; ctx.font = 'bold 9px Inter, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(BW_NAMES[b] + ' MHz', mL - 4, y + rowH * 0.55);
+
+    // % text
+    ctx.fillStyle = BW_STACK_COLORS[b]; ctx.textAlign = 'left'; ctx.font = '9px Inter, sans-serif';
+    ctx.fillText(curPct.toFixed(1) + '%', mL + plotW * curPct / 100 + 3, y + (pinB ? 1 : rowH * 0.2) + barH * 0.75);
+
+    capParts.push(BW_NAMES[b] + ': ' + bwUniqBins[b].toLocaleString() + ' (' + curPct.toFixed(1) + '%)');
+  }
+
+  // 25% / 50% / 75% / 100% grid lines
+  ctx.strokeStyle = '#d0d7de'; ctx.setLineDash([3, 3]); ctx.lineWidth = 0.8;
+  for (const pct of [25, 50, 75, 100]) {
+    const x = mL + plotW * pct / 100;
+    ctx.beginPath(); ctx.moveTo(x, mT); ctx.lineTo(x, mT + plotH); ctx.stroke();
+    ctx.fillStyle = '#57606e'; ctx.font = '8px Inter, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(pct + '%', x, mT - 3);
+  }
+  ctx.setLineDash([]);
+
+  if (pinB) {
+    // legend
+    ctx.fillStyle = '#6e7781'; ctx.fillRect(W - mR - 40, mT, 8, 8);
+    ctx.fillStyle = '#1f2328'; ctx.font = '8px Inter, sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText('A (pin)', W - mR - 30, mT + 7);
+    ctx.fillStyle = '#4e79a7'; ctx.fillRect(W - mR - 40, mT + 11, 8, 8);
+    ctx.fillText('B (cur)', W - mR - 30, mT + 18);
+  }
+
+  cap.textContent = capParts.join('  |  ');
 }
 
 // ── Building entry loss: distribution of (best indoor − best outdoor) RSSI ───
@@ -1021,6 +1115,7 @@ document.getElementById('an-pin').addEventListener('click', () => {
       label: lastSearchLabel || 'Pinned view',
       lpi: Uint32Array.from(lpiChanBins), lpiTotal: lpiChanTotal,
       sp:  Uint32Array.from(spChanBins),  spTotal:  spChanTotal,
+      bwUniq: Uint32Array.from(bwUniqBins), bwUniqTotal: bwUniqTotal,
       rssiBw: Uint32Array.from(anRssiHist),
       rssiCh: Uint32Array.from(anRssiChanHist),
       time: Uint32Array.from(timeBins), timeTotal: timeTotal,
@@ -1113,6 +1208,7 @@ function drawAnalytics() {
   drawViolin();
   drawChanChart('an-lpi', 'an-lpi-cap', lpiChanBins, lpiChanTotal, lpiSamples, anLpiHover);
   drawChanChart('an-sp',  'an-sp-cap',  spChanBins,  spChanTotal,  spSamples,  anSpHover);
+  drawBwPctChart();
   belStale = true; drawBelChart();
   drawTimeChart();
 }
@@ -1182,6 +1278,7 @@ function updateViewCount() {
   const typeCounts = new Uint32Array(AP_CATS.length);
   lpiChanBins.fill(0); lpiChanTotal = 0; lpiSamples = 0;
   spChanBins.fill(0);  spChanTotal  = 0; spSamples  = 0;
+  bwUniqBins.fill(0);  bwUniqTotal  = 0;
   anRssiHist.fill(0);
   anRssiChanHist.fill(0);
   timeBins.fill(0); timeTotal = 0;
@@ -1224,20 +1321,33 @@ function updateViewCount() {
       }
     }
 
-    // Unique BSSIDs per PSC stacked by bandwidth, for LPI and SP (width 0 excluded)
-    if ((t === IDX_LPI || t === IDX_SP) && bssids && isPsc && wEnc >= 1 && wEnc <= 5) {
-      const bin = (ch - 5) / 16;
+    // Unique BSSIDs per channel stacked by bandwidth, for LPI and SP (all 6 GHz channels)
+    const isValid6G = ch >= 1 && ch <= 233 && (ch - 1) % 4 === 0;
+    if ((t === IDX_LPI || t === IDX_SP) && bssids && isValid6G && wEnc >= 1 && wEnc <= 5) {
+      const bin = (ch - 1) / 4;
       if (t === IDX_LPI) lpiSamples++; else spSamples++;
       const o = i * 6;
-      // pack the 6-byte BSSID into one number (48 bits fits a JS safe integer)
       const key = (bssids[o] * 256 + bssids[o+1]) * 4294967296 +
                   bssids[o+2] * 16777216 + bssids[o+3] * 65536 +
                   bssids[o+4] * 256 + bssids[o+5];
-      const chanKey = key * 75 + bin * 5 + (wEnc - 1);
+      const chanKey = `${key},${bin * 5 + wEnc - 1}`;
       if (!seenBssids.has(chanKey)) {
         seenBssids.add(chanKey);
         if (t === IDX_LPI) { lpiChanBins[bin * 5 + wEnc - 1]++; lpiChanTotal++; }
-        else         { spChanBins[bin * 5 + wEnc - 1]++;  spChanTotal++;  }
+        else               { spChanBins[bin * 5 + wEnc - 1]++;  spChanTotal++; }
+      }
+    }
+    // BW % chart: unique BSSIDs per bandwidth across all types
+    if (bssids && isValid6G && wEnc >= 1 && wEnc <= 5) {
+      const o = i * 6;
+      const key = (bssids[o] * 256 + bssids[o+1]) * 4294967296 +
+                  bssids[o+2] * 16777216 + bssids[o+3] * 65536 +
+                  bssids[o+4] * 256 + bssids[o+5];
+      const bwKey = `bw,${key},${wEnc - 1}`;
+      if (!seenBssids.has(bwKey)) {
+        seenBssids.add(bwKey);
+        bwUniqBins[wEnc - 1]++;
+        bwUniqTotal++;
       }
     }
   }
