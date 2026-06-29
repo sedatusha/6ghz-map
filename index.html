@@ -243,7 +243,7 @@ input[type=range]{width:100%;padding:0;cursor:pointer;accent-color:var(--accent)
               <button id="chan-lpi" class="active">LPI</button><button id="chan-sp">SP</button>
             </span>
           </div>
-          <canvas id="an-chan" width="880" height="230"></canvas>
+          <canvas id="an-chan" width="1200" height="300"></canvas>
           <div class="an-cap" id="an-chan-cap"></div>
         </div>
         <!-- Row 2: RSSI violin + BW% -->
@@ -253,12 +253,12 @@ input[type=range]{width:100%;padding:0;cursor:pointer;accent-color:var(--accent)
               <button id="vio-bw" class="active">by BW</button><button id="vio-ch">by Channel</button>
             </span>
           </div>
-          <canvas id="an-violin" width="440" height="230"></canvas>
+          <canvas id="an-violin" width="440" height="180"></canvas>
           <div class="an-cap" id="an-violin-cap"></div>
         </div>
         <div class="an-chart">
           <div class="an-title">Bandwidth Distribution &mdash; % of Unique BSSIDs</div>
-          <canvas id="an-bw-pct" width="440" height="230"></canvas>
+          <canvas id="an-bw-pct" width="440" height="180"></canvas>
           <div class="an-cap" id="an-bw-pct-cap"></div>
         </div>
         <!-- Row 3: BEL + Growth -->
@@ -266,12 +266,12 @@ input[type=range]{width:100%;padding:0;cursor:pointer;accent-color:var(--accent)
           <div class="an-title">Building Entry Loss
             <span class="an-toggle"><button id="bel-compute">Compute</button></span>
           </div>
-          <canvas id="an-bel" width="440" height="230"></canvas>
+          <canvas id="an-bel" width="440" height="180"></canvas>
           <div class="an-cap" id="an-bel-cap"></div>
         </div>
         <div class="an-chart">
           <div class="an-title">6 GHz Growth &mdash; per Year</div>
-          <canvas id="an-time" width="440" height="230"></canvas>
+          <canvas id="an-time" width="440" height="180"></canvas>
           <div class="an-cap" id="an-time-cap"></div>
         </div>
       </div>
@@ -680,7 +680,7 @@ function drawChanChart(cvId, capId, bins, total, samples, hoverBin) {
   const cv = document.getElementById(cvId);
   const ctx = cv.getContext('2d');
   const W = cv.width, H = cv.height;
-  const mL = 30, mB = 22, mT = 18;
+  const mL = 30, mB = 60, mT = 18;
   const plotW = W - mL - 4, plotH = H - mT - mB;
   ctx.clearRect(0, 0, W, H);
 
@@ -795,22 +795,23 @@ function drawChanChart(cvId, capId, bins, total, samples, hoverBin) {
     ly += 11;
   }
 
-  // baseline + channel number labels (PSC in bold, others as small ticks)
-  ctx.strokeStyle = '#d0d7de';
+  // baseline + all channel labels rotated 90° (PSC bold+dark, others muted)
+  ctx.strokeStyle = '#d0d7de'; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(mL, mT + plotH + 0.5); ctx.lineTo(W - 4, mT + plotH + 0.5); ctx.stroke();
-  ctx.textAlign = 'center';
   for (let k = 0; k < N_CH; k++) {
     const cx = xOf(k) + slotW / 2;
-    if (PSC_BINS.has(k)) {
-      ctx.fillStyle = '#1f2328'; ctx.font = 'bold 8px Inter, sans-serif';
-      ctx.fillText(ALL_CH[k], cx, H - 10);
-    } else {
-      ctx.strokeStyle = '#adb8c2'; ctx.lineWidth = 0.5;
-      ctx.beginPath(); ctx.moveTo(cx, mT + plotH + 1); ctx.lineTo(cx, mT + plotH + 4); ctx.stroke();
-    }
+    const isPsc = PSC_BINS.has(k);
+    ctx.save();
+    ctx.translate(cx, mT + plotH + 4);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'right';
+    ctx.font = isPsc ? 'bold 9px Inter, sans-serif' : '8px Inter, sans-serif';
+    ctx.fillStyle = isPsc ? '#1f2328' : '#adb8c2';
+    ctx.fillText(ALL_CH[k], 0, 3);
+    ctx.restore();
   }
-  ctx.fillStyle = '#57606e'; ctx.font = '9px Inter, sans-serif';
-  ctx.fillText('Primary Ch. No. (PSC bold)', mL + plotW / 2, H - 1);
+  ctx.fillStyle = '#57606e'; ctx.font = '9px Inter, sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('Primary Ch. No. (PSC bold)', mL + plotW / 2, H - 2);
 
   const cap = document.getElementById(capId);
   if (pin && hoverBin >= 0 && (pinPct[hoverBin] > 0 || curPct[hoverBin] > 0)) {
