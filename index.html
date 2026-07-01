@@ -92,12 +92,12 @@ input[type=range]{width:100%;padding:0;cursor:pointer;accent-color:var(--accent)
 .an-head{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;font-size:12px;font-weight:600;color:#1f2328;border-bottom:1px solid var(--border)}
 .an-head button{background:none;border:none;cursor:pointer;color:var(--muted);font-size:16px;line-height:1;padding:0}
 .an-head button:hover{color:#1f2328}
-.an-charts{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;padding:10px 8px 6px;overflow-y:auto;flex:1}
+.an-charts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:10px 8px 6px;overflow-y:auto;flex:1}
 #an-resizer{height:7px;cursor:ns-resize;background:transparent;position:relative;flex-shrink:0}
 #an-resizer::after{content:'';position:absolute;left:50%;top:2px;transform:translateX(-50%);width:48px;height:3px;border-radius:2px;background:var(--border)}
 #an-resizer:hover::after{background:var(--accent)}
 .an-chart{padding:0 8px 8px;display:flex;flex-direction:column;align-items:center}
-.an-chart.full{grid-column:span 2}
+.an-chart.full{grid-column:span 3}
 .an-title{font-size:11px;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em;text-align:center}
 .an-toggle button{background:var(--bg);border:1px solid var(--border);color:var(--muted);font-family:inherit;font-size:10px;font-weight:600;padding:2px 8px;cursor:pointer}
 .an-toggle button:first-child{border-radius:5px 0 0 5px}
@@ -246,7 +246,7 @@ input[type=range]{width:100%;padding:0;cursor:pointer;accent-color:var(--accent)
           <canvas id="an-chan" width="1200" height="300"></canvas>
           <div class="an-cap" id="an-chan-cap"></div>
         </div>
-        <!-- Row 2: RSSI violin + BW% -->
+        <!-- Row 2: RSSI violin + Tx Power violin + BW% -->
         <div class="an-chart">
           <div class="an-title">RSSI Distribution &mdash;
             <span class="an-toggle">
@@ -255,6 +255,11 @@ input[type=range]{width:100%;padding:0;cursor:pointer;accent-color:var(--accent)
           </div>
           <canvas id="an-violin" width="440" height="180"></canvas>
           <div class="an-cap" id="an-violin-cap"></div>
+        </div>
+        <div class="an-chart">
+          <div class="an-title">Tx Power Distribution by Bandwidth</div>
+          <canvas id="an-txpwr" width="440" height="180"></canvas>
+          <div class="an-cap" id="an-txpwr-cap"></div>
         </div>
         <div class="an-chart">
           <div class="an-title">Bandwidth Distribution &mdash; % of Unique BSSIDs</div>
@@ -327,7 +332,7 @@ function daysToDate(d) {
 
 // ── Typed arrays (populated after binary load) ────────────────────────────────
 let N = 0;
-let lats, lons, rssis, apTypes, widths, opIdxs, stdIdxs, freqIdxs, envs;
+let lats, lons, rssis, apTypes, widths, opIdxs, stdIdxs, freqIdxs, envs, txPwrs;
 let bssids, dateDays;  // from details.bin
 let META = null;
 
@@ -465,8 +470,10 @@ let vlpChanTotal = 0, vlpSamples = 0;
 const bwUniqBins = new Uint32Array(5);
 let bwUniqTotal = 0;
 const RSSI_BINS = 71;                                  // one-dB bins, -100..-30
+const TX_BINS = 61;                                    // one-dBm bins, 0..60 dBm
 const anRssiHist     = new Uint32Array(5 * RSSI_BINS);  // by bandwidth class
 const anRssiChanHist = new Uint32Array(15 * RSSI_BINS); // by preferred scanning channel
+const anTxHist       = new Uint32Array(5 * TX_BINS);    // tx power by bandwidth class
 const BW_NAMES = ['20', '40', '80', '160', '320'];
 let violinMode = 'bw';  // 'bw' | 'ch'
 
@@ -918,6 +925,93 @@ function drawBwPctChart() {
   cap.textContent = capParts.join('  |  ');
 }
 
+// ── Tx Power violin ───────────────────────────────────────────────────────────
+function drawTxViolin() {
+  const cv = document.getElementById('an-txpwr');
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  const mL = 34, mR = 8, mT = 14, mB = 28;
+  const plotW = W - mL - mR, plotH = H - mT - mB;
+  ctx.clearRect(0, 0, W, H);
+
+  const txMin = 0, txMax = 60;
+  const yOf = v => mT + (txMax - v) / (txMax - txMin) * plotH;
+
+  // y grid
+  ctx.strokeStyle = '#d0d7de'; ctx.setLineDash([3, 3]); ctx.lineWidth = 0.8;
+  ctx.fillStyle = '#57606e'; ctx.font = '8px Inter, sans-serif'; ctx.textAlign = 'right';
+  for (let v = 0; v <= 60; v += 10) {
+    const y = yOf(v);
+    ctx.beginPath(); ctx.moveTo(mL, y); ctx.lineTo(W - mR, y); ctx.stroke();
+    ctx.fillText(v, mL - 3, y + 3);
+  }
+  ctx.setLineDash([]);
+
+  // count non-empty BW classes
+  const active = [];
+  for (let b = 0; b < 5; b++) {
+    let tot = 0;
+    for (let t = 1; t <= 60; t++) tot += anTxHist[b * TX_BINS + t];
+    if (tot > 0) active.push({b, tot});
+  }
+
+  if (!active.length) {
+    ctx.fillStyle = '#57606e'; ctx.font = '10px Inter, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('No Tx power data in view', W / 2, H / 2);
+    return;
+  }
+
+  const slotW = plotW / active.length;
+  const VIO_COLORS = ['#4e79a7','#f28e2b','#59a14f','#e15759','#b07aa1'];
+
+  active.forEach(({b, tot}, ki) => {
+    const cx = mL + ki * slotW + slotW / 2;
+    const maxCount = Math.max(...Array.from({length: 60}, (_, t) => anTxHist[b * TX_BINS + t + 1])) || 1;
+    const halfW = slotW * 0.38;
+
+    // violin shape
+    ctx.beginPath();
+    let first = true;
+    for (let t = 1; t <= 60; t++) {
+      const v = anTxHist[b * TX_BINS + t] / maxCount * halfW;
+      const y = yOf(t);
+      if (first) { ctx.moveTo(cx + v, y); first = false; } else ctx.lineTo(cx + v, y);
+    }
+    for (let t = 60; t >= 1; t--) {
+      const v = anTxHist[b * TX_BINS + t] / maxCount * halfW;
+      ctx.lineTo(cx - v, yOf(t));
+    }
+    ctx.closePath();
+    ctx.fillStyle = VIO_COLORS[b]; ctx.globalAlpha = 0.75; ctx.fill();
+    ctx.globalAlpha = 1; ctx.strokeStyle = '#000'; ctx.lineWidth = 0.6; ctx.stroke();
+
+    // median + quartiles
+    let cumul = 0, q1y = null, medy = null, q3y = null;
+    for (let t = 1; t <= 60; t++) {
+      cumul += anTxHist[b * TX_BINS + t];
+      if (!q1y && cumul >= tot * 0.25) q1y = yOf(t);
+      if (!medy && cumul >= tot * 0.50) medy = yOf(t);
+      if (!q3y && cumul >= tot * 0.75) q3y = yOf(t);
+    }
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+    if (q1y && q3y) { ctx.beginPath(); ctx.moveTo(cx, q1y); ctx.lineTo(cx, q3y); ctx.stroke(); }
+    ctx.lineWidth = 2.5;
+    if (medy) { ctx.beginPath(); ctx.moveTo(cx - halfW * 0.4, medy); ctx.lineTo(cx + halfW * 0.4, medy); ctx.stroke(); }
+
+    // x label
+    ctx.fillStyle = '#1f2328'; ctx.font = '8px Inter, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(BW_NAMES[b] + ' MHz', cx, H - mB + 11);
+    ctx.fillStyle = '#57606e'; ctx.font = '7px Inter, sans-serif';
+    ctx.fillText('n=' + tot.toLocaleString(), cx, H - mB + 20);
+  });
+
+  ctx.fillStyle = '#57606e'; ctx.font = '8px Inter, sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('Tx Power (dBm)', mL + plotW / 2, H - 2);
+
+  document.getElementById('an-txpwr-cap').textContent =
+    active.map(({b, tot}) => BW_NAMES[b] + ' MHz: n=' + tot.toLocaleString()).join('  |  ');
+}
+
 // ── Building entry loss: distribution of (best indoor − best outdoor) RSSI ───
 const belMap = new Map();
 
@@ -1214,6 +1308,7 @@ let anChanHover = -1, chanMode = 'lpi';
 function drawAnalytics() {
   if (!anPanel.classList.contains('open')) return;
   drawViolin();
+  drawTxViolin();
   const [chanBins, chanTotal, chanSamples] = chanMode === 'lpi'
     ? [lpiChanBins, lpiChanTotal, lpiSamples]
     : chanMode === 'sp'
@@ -1300,6 +1395,7 @@ function updateViewCount() {
   bwUniqBins.fill(0);  bwUniqTotal  = 0;
   anRssiHist.fill(0);
   anRssiChanHist.fill(0);
+  anTxHist.fill(0);
   timeBins.fill(0); timeTotal = 0;
   const seenBssids = new Set();  // dedup: each BSSID counted once per view
   const timeSeen   = new Set();  // dedup for the growth chart (all AP types)
@@ -1318,6 +1414,10 @@ function updateViewCount() {
     const rBin = rssis[i] === -128 ? -1 : Math.max(0, Math.min(RSSI_BINS - 1, rssis[i] + 100));
     if (rBin >= 0 && wEnc >= 1 && wEnc <= 5) {
       anRssiHist[(wEnc - 1) * RSSI_BINS + rBin]++;
+    }
+    if (txPwrs && wEnc >= 1 && wEnc <= 5) {
+      const tx = txPwrs[i];
+      if (tx >= 1 && tx <= 60) anTxHist[(wEnc - 1) * TX_BINS + tx]++;
     }
 
     // Per preferred scanning channel (PSC): ch = (primary_freq - 5950) / 5, PSC are ch 5 + 16k
@@ -1505,7 +1605,8 @@ function parsePointsBin(buf) {
   opIdxs   = new Uint8Array (buf, o, N); o += N;
   stdIdxs  = new Uint8Array (buf, o, N); o += N;
   freqIdxs = new Uint8Array (buf, o, N); o += N;
-  envs     = new Uint8Array (buf, o, N);
+  envs     = new Uint8Array (buf, o, N); o += N;
+  txPwrs   = new Uint8Array (buf, o, N);
 }
 
 function parseDetailsBin(buf) {
