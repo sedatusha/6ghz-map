@@ -1449,7 +1449,7 @@ function updateViewCount() {
       const key = (bssids[o] * 256 + bssids[o+1]) * 4294967296 +
                   bssids[o+2] * 16777216 + bssids[o+3] * 65536 +
                   bssids[o+4] * 256 + bssids[o+5];
-      const chanKey = `${key},${bin * 5 + wEnc - 1}`;
+      const chanKey = `${t},${key},${bin * 5 + wEnc - 1}`;
       if (!seenBssids.has(chanKey)) {
         seenBssids.add(chanKey);
         if (t === IDX_LPI)      { lpiChanBins[bin * 5 + wEnc - 1]++; lpiChanTotal++; }
