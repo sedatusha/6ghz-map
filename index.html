@@ -724,14 +724,17 @@ function drawChanChart(cvId, capId, bins, total, samples, hoverBin) {
     maxPct = maxPct || 1;
   }
 
-  // grid + ticks
+  // grid + ticks — use integer step so duplicate labels never appear
+  const tickStep = pin ? null : Math.max(1, Math.ceil(maxCnt / 4));
+  const nTicks   = pin ? 4 : Math.ceil(maxCnt / tickStep);
   ctx.strokeStyle = '#d0d7de'; ctx.setLineDash([3, 3]);
   ctx.fillStyle = '#57606e'; ctx.font = '9px Inter, sans-serif'; ctx.textAlign = 'right';
-  for (let g = 0; g <= 4; g++) {
-    const y = mT + plotH - plotH * g / 4;
+  for (let g = 0; g <= nTicks; g++) {
+    const frac = g / nTicks;
+    const y = mT + plotH - plotH * frac;
     ctx.beginPath(); ctx.moveTo(mL, y); ctx.lineTo(W - 4, y); ctx.stroke();
-    const tick = pin ? (maxPct * g / 4).toFixed(maxPct < 8 ? 1 : 0) + '%'
-                     : (() => { const v = Math.round(maxCnt * g / 4);
+    const tick = pin ? (maxPct * frac).toFixed(maxPct < 8 ? 1 : 0) + '%'
+                     : (() => { const v = g * tickStep;
                         return v >= 1000 ? (v / 1000).toFixed(v >= 10000 ? 0 : 1) + 'k' : v; })();
     ctx.fillText(tick, mL - 3, y + 3);
   }
