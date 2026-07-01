@@ -240,7 +240,7 @@ input[type=range]{width:100%;padding:0;cursor:pointer;accent-color:var(--accent)
         <div class="an-chart full">
           <div class="an-title">Unique BSSIDs per Channel &mdash;
             <span class="an-toggle">
-              <button id="chan-lpi" class="active">LPI</button><button id="chan-sp">SP</button>
+              <button id="chan-lpi" class="active">LPI</button><button id="chan-sp">SP</button><button id="chan-vlp">VLP</button>
             </span>
           </div>
           <canvas id="an-chan" width="1200" height="300"></canvas>
@@ -291,7 +291,7 @@ const AP_PALETTE = {
 };
 const AP_FALLBACK_COLORS = [[26,127,55],[207,34,46],[154,103,0],[57,197,207]];
 let AP_CATS = [], AP_COLORS = [];  // filled from meta.json at load
-let IDX_LPI = 0, IDX_SP = 1;       // category indices, set at load
+let IDX_LPI = 0, IDX_SP = 1, IDX_VLP = 3;  // category indices, set at load
 
 function initApCats(cats) {
   AP_CATS = cats;
@@ -459,6 +459,8 @@ let lpiChanTotal = 0, lpiSamples = 0;
 const BW_STACK_COLORS = ['#4e79a7', '#f28e2b', '#59a14f', '#e15759', '#b07aa1'];
 const spChanBins = new Uint32Array(N_CH * 5);
 let spChanTotal = 0, spSamples = 0;
+const vlpChanBins = new Uint32Array(N_CH * 5);
+let vlpChanTotal = 0, vlpSamples = 0;
 // Unique BSSIDs per bandwidth across all channels (for BW % chart)
 const bwUniqBins = new Uint32Array(5);
 let bwUniqTotal = 0;
@@ -701,7 +703,8 @@ function drawChanChart(cvId, capId, bins, total, samples, hoverBin) {
 
   // pinned-region comparison: per-channel totals as % of each region's BSSIDs
   const pin = pinned ? (chanMode === 'lpi' ? {bins: pinned.lpi, total: pinned.lpiTotal}
-                                           : {bins: pinned.sp,  total: pinned.spTotal}) : null;
+                      : chanMode === 'sp'  ? {bins: pinned.sp,  total: pinned.spTotal}
+                                           : {bins: pinned.vlp, total: pinned.vlpTotal}) : null;
   let pinPct = null, curPct = null, maxPct = 0;
   if (pin) {
     pinPct = new Array(N_CH).fill(0); curPct = new Array(N_CH).fill(0);
@@ -1119,6 +1122,7 @@ document.getElementById('an-pin').addEventListener('click', () => {
       label: lastSearchLabel || 'Pinned view',
       lpi: Uint32Array.from(lpiChanBins), lpiTotal: lpiChanTotal,
       sp:  Uint32Array.from(spChanBins),  spTotal:  spChanTotal,
+      vlp: Uint32Array.from(vlpChanBins), vlpTotal: vlpChanTotal,
       bwUniq: Uint32Array.from(bwUniqBins), bwUniqTotal: bwUniqTotal,
       rssiBw: Uint32Array.from(anRssiHist),
       rssiCh: Uint32Array.from(anRssiChanHist),
@@ -1212,7 +1216,9 @@ function drawAnalytics() {
   drawViolin();
   const [chanBins, chanTotal, chanSamples] = chanMode === 'lpi'
     ? [lpiChanBins, lpiChanTotal, lpiSamples]
-    : [spChanBins,  spChanTotal,  spSamples];
+    : chanMode === 'sp'
+    ? [spChanBins,  spChanTotal,  spSamples]
+    : [vlpChanBins, vlpChanTotal, vlpSamples];
   drawChanChart('an-chan', 'an-chan-cap', chanBins, chanTotal, chanSamples, anChanHover);
   drawBwPctChart();
   belStale = true; drawBelChart();
@@ -1231,17 +1237,12 @@ function chanHover(cvId, setter) {
   cv.addEventListener('mouseleave', () => { setter(-1); drawAnalytics(); });
 }
 chanHover('an-chan', v => { anChanHover = v; drawAnalytics(); });
-document.getElementById('chan-lpi').addEventListener('click', () => {
-  chanMode = 'lpi';
-  document.getElementById('chan-lpi').classList.add('active');
-  document.getElementById('chan-sp').classList.remove('active');
-  drawAnalytics();
-});
-document.getElementById('chan-sp').addEventListener('click', () => {
-  chanMode = 'sp';
-  document.getElementById('chan-sp').classList.add('active');
-  document.getElementById('chan-lpi').classList.remove('active');
-  drawAnalytics();
+['lpi','sp','vlp'].forEach(mode => {
+  document.getElementById('chan-' + mode).addEventListener('click', () => {
+    chanMode = mode;
+    ['lpi','sp','vlp'].forEach(m => document.getElementById('chan-' + m).classList.toggle('active', m === mode));
+    drawAnalytics();
+  });
 });
 
 // AP-type breakdown: in-view count (live) alongside full-dataset total
@@ -1295,6 +1296,7 @@ function updateViewCount() {
   const typeCounts = new Uint32Array(AP_CATS.length);
   lpiChanBins.fill(0); lpiChanTotal = 0; lpiSamples = 0;
   spChanBins.fill(0);  spChanTotal  = 0; spSamples  = 0;
+  vlpChanBins.fill(0); vlpChanTotal = 0; vlpSamples = 0;
   bwUniqBins.fill(0);  bwUniqTotal  = 0;
   anRssiHist.fill(0);
   anRssiChanHist.fill(0);
@@ -1340,9 +1342,9 @@ function updateViewCount() {
 
     // Unique BSSIDs per channel stacked by bandwidth, for LPI and SP (all 6 GHz channels)
     const isValid6G = ch >= 1 && ch <= 233 && (ch - 1) % 4 === 0;
-    if ((t === IDX_LPI || t === IDX_SP) && bssids && isValid6G && wEnc >= 1 && wEnc <= 5) {
+    if ((t === IDX_LPI || t === IDX_SP || t === IDX_VLP) && bssids && isValid6G && wEnc >= 1 && wEnc <= 5) {
       const bin = (ch - 1) / 4;
-      if (t === IDX_LPI) lpiSamples++; else spSamples++;
+      if (t === IDX_LPI) lpiSamples++; else if (t === IDX_SP) spSamples++; else vlpSamples++;
       const o = i * 6;
       const key = (bssids[o] * 256 + bssids[o+1]) * 4294967296 +
                   bssids[o+2] * 16777216 + bssids[o+3] * 65536 +
@@ -1350,8 +1352,9 @@ function updateViewCount() {
       const chanKey = `${key},${bin * 5 + wEnc - 1}`;
       if (!seenBssids.has(chanKey)) {
         seenBssids.add(chanKey);
-        if (t === IDX_LPI) { lpiChanBins[bin * 5 + wEnc - 1]++; lpiChanTotal++; }
-        else               { spChanBins[bin * 5 + wEnc - 1]++;  spChanTotal++; }
+        if (t === IDX_LPI)      { lpiChanBins[bin * 5 + wEnc - 1]++; lpiChanTotal++; }
+        else if (t === IDX_SP)  { spChanBins[bin * 5 + wEnc - 1]++;  spChanTotal++;  }
+        else                    { vlpChanBins[bin * 5 + wEnc - 1]++; vlpChanTotal++; }
       }
     }
     // BW % chart: unique BSSIDs per bandwidth across all types
@@ -1532,6 +1535,7 @@ async function init() {
     initApCats(META.ap_cats || ['LPI', 'SP', 'Indoor SP', 'VLP', 'Unknown']);
     IDX_LPI = AP_CATS.indexOf('LPI');
     IDX_SP  = AP_CATS.indexOf('SP');
+    IDX_VLP = AP_CATS.indexOf('VLP');
     parsePointsBin(pointsBuf);
     buildColorBuf();
     populateSidebar(META);
